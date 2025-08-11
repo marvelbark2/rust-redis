@@ -27,9 +27,10 @@ fn main() {
 
 fn handle_stream(mut stream: TcpStream) {
     let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut line = String::new();
 
     loop {
-        let mut line = String::new();
+        line.clear();
         let n = reader.read_line(&mut line).unwrap();
         if n == 0 {
             break; // connection closed
