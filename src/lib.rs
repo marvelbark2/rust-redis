@@ -110,9 +110,9 @@ impl AppCommand {
                 if parts.len() > 4 {
                     let ex = parts[4].parse().unwrap_or(0);
                     let unit = parts[3].clone();
-                    if unit == "EX" {
+                    if unit == "EX" || unit == "ex" {
                         ex * 1000 // Convert seconds to milliseconds
-                    } else if unit == "PX" {
+                    } else if unit == "PX" || unit == "px" {
                         ex // Already in milliseconds
                     } else {
                         0 // Default to 0 if no valid unit is provided
