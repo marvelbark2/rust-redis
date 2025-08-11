@@ -117,22 +117,28 @@ impl AppCommand {
                 let engine = writter.write().unwrap();
                 let list_key = format!("{}_list", key);
 
-                if start_index > end_index {
+                if start_index > end_index && *end_index >= 0 && *start_index >= 0 {
                     return String::from("*0\r\n");
                 }
 
                 if let Some(existing) = engine.get(&list_key) {
                     let items: Vec<&str> = existing.split('\r').collect();
-                    let start = *start_index as usize;
-                    let end = if *end_index <= 0 || *end_index >= items.len() as i32 {
+                    let start = if *start_index < 0 {
+                        items.len() + (*start_index) as usize
+                    } else {
+                        *start_index as usize
+                    };
+                    let end = if *end_index >= items.len() as i32 {
                         items.len()
+                    } else if *end_index < 0 {
+                        items.len() + (*end_index) as usize + 1 as usize
                     } else {
                         (*end_index + 1) as usize
                     };
 
                     println!(
-                        "[LRANGE] start: {}, end: {}, items: {:?}",
-                        start, end, items
+                        "[LRANGE] start: {}, end: {}, start_index: {}, end_index: {}",
+                        start, end, start_index, end_index
                     );
 
                     if start < items.len() && end <= items.len() {
