@@ -43,8 +43,8 @@ fn handle_stream(mut stream: TcpStream) {
 
         let mut res = if req.eq_ignore_ascii_case("PING") {
             "+PONG".to_string()
-        } else if let Some(after) = req.strip_prefix("ECHO ") {
-            String::from("+") + after
+        } else if let Some(after) = req.strip_prefix("ECHO") {
+            String::from("+") + after.strip_prefix(" ").unwrap_or("")
         } else {
             String::new()
         };
