@@ -163,10 +163,25 @@ impl AppCommand {
             }
             AppCommand::LPush(key, values) => {
                 let reversed_values: Vec<&str> = values.split('\r').rev().collect();
-                let values = reversed_values.join("\r");
-                let rpush_command = AppCommand::RPush(key.clone(), values);
+                let value = reversed_values.join("\r");
+                let mut engine = writter.write().unwrap();
+                let list_key = format!("{}_list", key);
 
-                rpush_command.compute(writter)
+                if let Some(existing) = engine.get(&list_key) {
+                    let mut new_value = existing.clone();
+                    new_value.insert_str(0, &format!("{}\r", value));
+                    let count = new_value.split('\r').count();
+                    println!("[LPush] key: {}, values: {:?}", key, new_value);
+                    engine.set(list_key, new_value);
+
+                    return format!(":{}", count);
+                } else {
+                    engine.set(list_key, value.clone());
+                    let count = value.split('\r').count();
+                    println!("[LPush] key: {}, values: {:?}", key, value);
+
+                    return format!(":{}", count);
+                }
             }
         }
     }
