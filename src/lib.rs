@@ -124,11 +124,16 @@ impl AppCommand {
                 if let Some(existing) = engine.get(&list_key) {
                     let items: Vec<&str> = existing.split('\r').collect();
                     let start = *start_index as usize;
-                    let end = if *end_index <= 0 {
+                    let end = if *end_index <= 0 || *end_index >= items.len() as i32 {
                         items.len()
                     } else {
                         (*end_index + 1) as usize
                     };
+
+                    println!(
+                        "[LRANGE] start: {}, end: {}, items: {:?}",
+                        start, end, items
+                    );
 
                     if start < items.len() && end <= items.len() {
                         // Return the requested range as a RESP array
