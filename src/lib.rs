@@ -1,4 +1,8 @@
-use std::io::{self, BufRead};
+use std::{
+    collections::HashMap,
+    io::{self, BufRead},
+    sync::{Arc, Mutex},
+};
 
 pub enum AppCommand {
     Ping,
@@ -10,13 +14,47 @@ pub enum AppCommand {
     Exists(String),
 }
 
+pub trait Engine {
+    fn get(&self, key: &str) -> Option<&String>;
+    fn set(&mut self, key: String, value: String);
+    fn del(&mut self, key: &str) -> bool;
+}
+#[derive(Debug, Clone)]
+pub struct HashMapEngine {
+    pub hash_map: HashMap<String, String>,
+}
+impl Engine for HashMapEngine {
+    fn get(&self, key: &str) -> Option<&String> {
+        self.hash_map.get(key)
+    }
+
+    fn set(&mut self, key: String, value: String) {
+        self.hash_map.insert(key, value);
+    }
+
+    fn del(&mut self, key: &str) -> bool {
+        self.hash_map.remove(key).is_some()
+    }
+}
+
 impl AppCommand {
-    pub fn compute(&self) -> String {
+    pub fn compute<T: Engine>(&self, writter: &Arc<Mutex<T>>) -> String {
         match self {
             AppCommand::Ping => "PONG".to_string(),
             AppCommand::Echo(msg) => msg.clone(),
-            AppCommand::Set(_, _) => "OK".to_string(),
-            AppCommand::Get(key) => format!("Value for {} is ...", key),
+            AppCommand::Set(key, value) => {
+                let mut engine = writter.lock().unwrap();
+                engine.set(key.to_string(), value.to_string());
+                "OK".to_string()
+            }
+            AppCommand::Get(key) => {
+                let engine = writter.lock().unwrap();
+                if let Some(v) = engine.get(key) {
+                    v.to_string()
+                } else {
+                    String::new()
+                }
+            }
             AppCommand::Del(key) => format!("Deleted {}", key),
             AppCommand::Keys(pattern) => format!("Keys matching {} are ...", pattern),
             AppCommand::Exists(key) => format!("{} exists", key),
