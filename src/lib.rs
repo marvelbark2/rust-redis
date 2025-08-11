@@ -5,6 +5,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[derive(PartialEq, Eq)]
 pub enum AppCommand {
     Ping,
     Echo(String),
@@ -13,6 +14,7 @@ pub enum AppCommand {
     Del(String),
     Keys(String),
     Exists(String),
+    RPush(String, String),
 }
 
 pub trait Engine {
@@ -93,6 +95,21 @@ impl AppCommand {
             AppCommand::Del(key) => format!("Deleted {}", key),
             AppCommand::Keys(pattern) => format!("Keys matching {} are ...", pattern),
             AppCommand::Exists(key) => format!("{} exists", key),
+            AppCommand::RPush(key, value) => {
+                let mut engine = writter.write().unwrap();
+                let list_key = format!("{}_list", key);
+                if let Some(existing) = engine.get(&list_key) {
+                    let mut new_value = existing.clone();
+                    new_value.push_str(&format!(",{}", value));
+                    let count = new_value.split(',').count();
+                    engine.set(list_key, new_value);
+
+                    return format!("(integer) {}", count);
+                } else {
+                    engine.set(list_key, value.clone());
+                    return String::from("(integer) 1");
+                }
+            }
         }
     }
 
@@ -125,6 +142,9 @@ impl AppCommand {
             "DEL" if parts.len() > 1 => Some(AppCommand::Del(parts[1].clone())),
             "KEYS" if parts.len() > 1 => Some(AppCommand::Keys(parts[1].clone())),
             "EXISTS" if parts.len() > 1 => Some(AppCommand::Exists(parts[1].clone())),
+            "RPUSH" if parts.len() > 2 => {
+                Some(AppCommand::RPush(parts[1].clone(), parts[2].clone()))
+            }
             _ => None,
         }
     }
