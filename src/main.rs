@@ -48,18 +48,8 @@ fn handle_stream(mut stream: TcpStream) -> io::Result<()> {
                 stream.write_all(res.as_bytes())?;
             }
             None => {
-                let other_attempt_cmd = parse_resp_array_simple(&mut reader)?;
-                if other_attempt_cmd.is_empty() {
-                    continue;
-                }
-                if let Some(cmd) = AppCommand::from_parts_simple(other_attempt_cmd) {
-                    let response = cmd.compute();
-                    let res = format!("+{}\r\n", response);
-                    stream.write_all(res.as_bytes())?;
-                } else {
-                    let err = "ERR unknown command\r\n";
-                    stream.write_all(err.as_bytes())?;
-                }
+                let error_response = "-ERR unknown command\r\n";
+                stream.write_all(error_response.as_bytes())?;
             }
         }
     }
@@ -70,7 +60,7 @@ fn parse_resp_array<R: BufRead>(reader: &mut R) -> io::Result<Vec<String>> {
 
     reader.read_line(&mut line)?;
     if !line.starts_with('*') {
-        return parse_resp_array_simple(reader);
+        return parse_simple(&mut line);
     }
     let count: usize = line[1..]
         .trim()
@@ -105,41 +95,16 @@ fn parse_resp_array<R: BufRead>(reader: &mut R) -> io::Result<Vec<String>> {
     Ok(parts)
 }
 
-fn parse_resp_array_simple<R: BufRead>(reader: &mut R) -> io::Result<Vec<String>> {
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
-    if !line.starts_with('*') {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Expected array"));
+fn parse_simple(line: &mut String) -> io::Result<Vec<String>> {
+    if line.is_empty() {
+        return Ok(vec![]);
     }
-    let count: usize = line[1..]
+
+    let parts: Vec<String> = line
         .trim()
-        .parse()
-        .map_err(|_| io::ErrorKind::InvalidData)?;
-
-    let mut parts = Vec::with_capacity(count);
-
-    for _ in 0..count {
-        line.clear();
-        reader.read_line(&mut line)?;
-        if !line.starts_with('$') {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Expected bulk string",
-            ));
-        }
-        let len: usize = line[1..]
-            .trim()
-            .parse()
-            .map_err(|_| io::ErrorKind::InvalidData)?;
-
-        let mut buf = vec![0u8; len];
-        reader.read_exact(&mut buf)?;
-        parts.push(str::from_utf8(&buf).unwrap().to_string());
-
-        // Consume trailing \r\n
-        let mut crlf = [0u8; 2];
-        reader.read_exact(&mut crlf)?;
-    }
-
+        .split_whitespace()
+        .map(|s| s.to_string())
+        .collect();
+    println!("Parsed parts: {:?}", parts);
     Ok(parts)
 }
