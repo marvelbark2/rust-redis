@@ -15,6 +15,7 @@ pub enum AppCommand {
     Keys(String),
     Exists(String),
     RPush(String, String),
+    LRANGE(String, i32, i32),
 }
 
 pub trait Engine {
@@ -73,7 +74,7 @@ impl AppCommand {
                     let expiration_key = format!("{}_expiration", key);
                     engine.set(expiration_key, duration);
                 }
-                "OK".to_string()
+                "+OK".to_string()
             }
             AppCommand::Get(key) => {
                 let mut engine = writter.write().unwrap();
@@ -87,7 +88,7 @@ impl AppCommand {
                             return String::from("-1");
                         }
                     }
-                    v.clone()
+                    format!("+{}", v)
                 } else {
                     String::from("-1")
                 }
@@ -111,6 +112,33 @@ impl AppCommand {
                     let count = value.split('\r').count();
                     return format!(":{}", count);
                 }
+            }
+            AppCommand::LRANGE(key, start_index, end_index) => {
+                let engine = writter.write().unwrap();
+                let list_key = format!("{}_list", key);
+
+                if let Some(existing) = engine.get(&list_key) {
+                    let items: Vec<&str> = existing.split('\r').collect();
+                    let start = *start_index as usize;
+                    let end = if *end_index < 0 {
+                        items.len()
+                    } else {
+                        (*end_index + 1) as usize
+                    };
+
+                    if start < items.len() && end <= items.len() {
+                        // Return the requested range as a RESP array
+                        let range_items: Vec<String> =
+                            items[start..end].iter().map(|s| s.to_string()).collect();
+                        let resp_array = format!("*{}\r\n", range_items.len())
+                            + &range_items
+                                .iter()
+                                .map(|s| format!("${}\r\n{}\r\n", s.len(), s))
+                                .collect::<String>();
+                        return resp_array;
+                    }
+                }
+                String::from("-1")
             }
         }
     }
@@ -147,6 +175,12 @@ impl AppCommand {
             "RPUSH" if parts.len() > 2 => {
                 let all_items = parts[2..].join("\r");
                 Some(AppCommand::RPush(parts[1].clone(), all_items))
+            }
+            "LRANGE" if parts.len() > 3 => {
+                let key = parts[1].clone();
+                let start_index: i32 = parts[2].parse().unwrap_or(0);
+                let end_index: i32 = parts[3].parse().unwrap_or(-1);
+                Some(AppCommand::LRANGE(key, start_index, end_index))
             }
             _ => None,
         }
