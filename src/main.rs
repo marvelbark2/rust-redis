@@ -38,20 +38,18 @@ fn handle_stream(mut stream: TcpStream) {
         // Trim whitespace, CRLF, and any stray NULs.
         let req = line.trim_matches(|c: char| c.is_whitespace() || c == '\0');
 
-        let mut res = if req.eq_ignore_ascii_case("PING") {
-            "PONG".to_string()
+        let res = if req.eq_ignore_ascii_case("PING") {
+            "+PONG".to_string()
         } else if let Some(after) = req.strip_prefix("ECHO ") {
-            after.to_string()
+            String::from("+") + after
         } else {
-            String::new()
+            String::from("+")
         };
 
         if res.is_empty() {
             eprintln!("Unknown command received: {req:?}");
             continue;
         }
-
-        res.insert_str(0, "+");
 
         stream.write_all(res.as_bytes()).unwrap();
     }
