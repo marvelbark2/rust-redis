@@ -1,13 +1,14 @@
 use std::{
     collections::HashMap,
     io::{self, BufRead},
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 pub enum AppCommand {
     Ping,
     Echo(String),
-    Set(String, String),
+    Set(String, String, i32),
     Get(String),
     Del(String),
     Keys(String),
@@ -37,22 +38,56 @@ impl Engine for HashMapEngine {
     }
 }
 
+fn generate_duration(ms: i32) -> String {
+    let now = SystemTime::now();
+    let deadline = now + Duration::from_millis(ms as u64);
+    let epoch_ms = deadline.duration_since(UNIX_EPOCH).unwrap().as_millis();
+    epoch_ms.to_string()
+}
+
+fn is_expired(time: String) -> bool {
+    let Ok(deadline_ms) = time.parse::<u128>() else {
+        return true; // invalid -> consider expired
+    };
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    now_ms >= deadline_ms
+}
+
 impl AppCommand {
-    pub fn compute<T: Engine>(&self, writter: &Arc<Mutex<T>>) -> String {
+    pub fn compute<T: Engine>(&self, writter: &Arc<RwLock<T>>) -> String {
         match self {
             AppCommand::Ping => "PONG".to_string(),
             AppCommand::Echo(msg) => msg.clone(),
-            AppCommand::Set(key, value) => {
-                let mut engine = writter.lock().unwrap();
+            AppCommand::Set(key, value, ttl) => {
+                let mut engine = writter.write().unwrap();
                 engine.set(key.to_string(), value.to_string());
+                if *ttl > 0 {
+                    let duration = generate_duration(*ttl);
+                    let expiration_key = format!("{}_expiration", key);
+                    engine.set(expiration_key, duration);
+                }
                 "OK".to_string()
             }
             AppCommand::Get(key) => {
-                let engine = writter.lock().unwrap();
+                let mut engine = writter.write().unwrap();
                 if let Some(v) = engine.get(key) {
-                    v.to_string()
+                    let expiration_key = format!("{}_expiration", key);
+                    if let Some(expiration) = engine.get(&expiration_key) {
+                        if is_expired(expiration.clone()) {
+                            engine.del(key);
+                            engine.del(&expiration_key);
+
+                            return String::from("-1");
+                        }
+                    }
+                    v.clone()
                 } else {
-                    String::new()
+                    String::from("-1")
                 }
             }
             AppCommand::Del(key) => format!("Deleted {}", key),
@@ -69,7 +104,23 @@ impl AppCommand {
         match parts[0].to_uppercase().as_str() {
             "PING" => Some(AppCommand::Ping),
             "ECHO" if parts.len() > 1 => Some(AppCommand::Echo(parts[1].clone())),
-            "SET" if parts.len() > 2 => Some(AppCommand::Set(parts[1].clone(), parts[2].clone())),
+            "SET" if parts.len() > 2 => Some(AppCommand::Set(
+                parts[1].clone(),
+                parts[2].clone(),
+                if parts.len() > 4 {
+                    let ex = parts[4].parse().unwrap_or(0);
+                    let unit = parts[3].clone();
+                    if unit == "EX" {
+                        ex * 1000 // Convert seconds to milliseconds
+                    } else if unit == "PX" {
+                        ex // Already in milliseconds
+                    } else {
+                        0 // Default to 0 if no valid unit is provided
+                    }
+                } else {
+                    0
+                },
+            )),
             "GET" if parts.len() > 1 => Some(AppCommand::Get(parts[1].clone())),
             "DEL" if parts.len() > 1 => Some(AppCommand::Del(parts[1].clone())),
             "KEYS" if parts.len() > 1 => Some(AppCommand::Keys(parts[1].clone())),
