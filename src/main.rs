@@ -38,7 +38,7 @@ fn handle_stream(mut stream: TcpStream) {
         // Trim whitespace, CRLF, and any stray NULs.
         let req = line.trim_matches(|c: char| c.is_whitespace() || c == '\0');
 
-        let res = if req.eq_ignore_ascii_case("PING") {
+        let mut res = if req.eq_ignore_ascii_case("PING") {
             "PONG".to_string()
         } else if let Some(after) = req.strip_prefix("ECHO ") {
             after.to_string()
@@ -50,6 +50,8 @@ fn handle_stream(mut stream: TcpStream) {
             eprintln!("Unknown command received: {req:?}");
             continue;
         }
+
+        res.insert_str(0, "+");
 
         stream.write_all(res.as_bytes()).unwrap();
     }
