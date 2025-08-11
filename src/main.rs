@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 use std::{
-    io::{Read, Write},
+    io::{self, BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
     thread,
 };
@@ -26,13 +26,33 @@ fn main() {
 }
 
 fn handle_stream(mut stream: TcpStream) {
-    let mut buf = [0; 512];
+    // Read line-by-line so partial reads or extra bytes don't confuse parsing.
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut line = String::new();
+
     loop {
-        let read_count = stream.read(&mut buf).unwrap();
-        if read_count == 0 {
-            break;
+        line.clear();
+        let n = reader.read_line(&mut line).unwrap();
+        if n == 0 {
+            break; // connection closed
         }
 
-        stream.write(b"+PONG\r\n").unwrap();
+        // Trim whitespace, CRLF, and any stray NULs.
+        let req = line.trim_matches(|c: char| c.is_whitespace() || c == '\0');
+
+        let res = if req.eq_ignore_ascii_case("PING") {
+            "PONG".to_string()
+        } else if let Some(after) = req.strip_prefix("ECHO ") {
+            after.to_string()
+        } else {
+            String::new()
+        };
+
+        if res.is_empty() {
+            eprintln!("Unknown command received: {req:?}");
+            continue;
+        }
+
+        stream.write_all(res.as_bytes()).unwrap();
     }
 }
