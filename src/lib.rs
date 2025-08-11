@@ -15,7 +15,7 @@ impl AppCommand {
         match self {
             AppCommand::Ping => "PONG".to_string(),
             AppCommand::Echo(msg) => msg.clone(),
-            AppCommand::Set(key, value) => format!("OK: {} set to {}", key, value),
+            AppCommand::Set(_, _) => "OK".to_string(),
             AppCommand::Get(key) => format!("Value for {} is ...", key),
             AppCommand::Del(key) => format!("Deleted {}", key),
             AppCommand::Keys(pattern) => format!("Keys matching {} are ...", pattern),
@@ -54,9 +54,9 @@ impl AppCommandParser {
     pub fn parse_resp_array<R: BufRead>(mut self: Self, reader: &mut R) -> io::Result<Vec<String>> {
         let mut line = String::new();
         reader.read_line(&mut line)?;
+        self.line = line;
 
         if !self.line.starts_with('*') {
-            self.line = line;
             return self.parse_simple();
         }
         let count: usize = self.line[1..]
@@ -89,6 +89,8 @@ impl AppCommandParser {
             reader.read_exact(&mut crlf)?;
         }
 
+        println!("[parse_resp_array] Parsed parts: {:?}", parts);
+
         Ok(parts)
     }
 
@@ -103,7 +105,7 @@ impl AppCommandParser {
             .split_whitespace()
             .map(|s| s.to_string())
             .collect();
-        println!("Parsed parts: {:?}", parts);
+        println!("[parse_simple] Parsed parts: {:?}", parts);
         Ok(parts)
     }
 }
