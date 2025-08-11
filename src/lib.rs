@@ -117,6 +117,10 @@ impl AppCommand {
                 let engine = writter.write().unwrap();
                 let list_key = format!("{}_list", key);
 
+                if start_index > end_index {
+                    return String::from("*0\r\n");
+                }
+
                 if let Some(existing) = engine.get(&list_key) {
                     let items: Vec<&str> = existing.split('\r').collect();
                     let start = *start_index as usize;
