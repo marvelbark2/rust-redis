@@ -74,7 +74,7 @@ impl AppCommand {
                     let expiration_key = format!("{}_expiration", key);
                     engine.set(expiration_key, duration);
                 }
-                "+OK".to_string()
+                "OK".to_string()
             }
             AppCommand::Get(key) => {
                 let mut engine = writter.write().unwrap();
@@ -88,7 +88,7 @@ impl AppCommand {
                             return String::from("-1");
                         }
                     }
-                    format!("+{}", v)
+                    v.clone()
                 } else {
                     String::from("-1")
                 }
@@ -138,7 +138,7 @@ impl AppCommand {
                         return resp_array;
                     }
                 }
-                String::from("-1")
+                String::from("*0")
             }
         }
     }
