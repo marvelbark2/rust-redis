@@ -98,16 +98,18 @@ impl AppCommand {
             AppCommand::RPush(key, value) => {
                 let mut engine = writter.write().unwrap();
                 let list_key = format!("{}_list", key);
+
                 if let Some(existing) = engine.get(&list_key) {
                     let mut new_value = existing.clone();
-                    new_value.push_str(&format!(",{}", value));
-                    let count = new_value.split(',').count();
+                    new_value.push_str(&format!("\r{}", value));
+                    let count = new_value.split('\r').count();
                     engine.set(list_key, new_value);
 
                     return format!(":{}", count);
                 } else {
                     engine.set(list_key, value.clone());
-                    return String::from(":1");
+                    let count = value.split('\r').count();
+                    return format!(":{}", count);
                 }
             }
         }
@@ -143,7 +145,8 @@ impl AppCommand {
             "KEYS" if parts.len() > 1 => Some(AppCommand::Keys(parts[1].clone())),
             "EXISTS" if parts.len() > 1 => Some(AppCommand::Exists(parts[1].clone())),
             "RPUSH" if parts.len() > 2 => {
-                Some(AppCommand::RPush(parts[1].clone(), parts[2].clone()))
+                let all_items = parts[2..].join("\r");
+                Some(AppCommand::RPush(parts[1].clone(), all_items))
             }
             _ => None,
         }
