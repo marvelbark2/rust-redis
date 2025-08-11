@@ -120,7 +120,7 @@ impl AppCommand {
                 if let Some(existing) = engine.get(&list_key) {
                     let items: Vec<&str> = existing.split('\r').collect();
                     let start = *start_index as usize;
-                    let end = if *end_index < 0 {
+                    let end = if *end_index <= 0 {
                         items.len()
                     } else {
                         (*end_index + 1) as usize
