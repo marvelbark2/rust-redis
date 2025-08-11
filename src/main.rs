@@ -48,7 +48,7 @@ fn handle_stream<T: Engine>(mut stream: TcpStream, engine: Arc<RwLock<T>>) -> io
         match command {
             Some(cmd) => {
                 let response = cmd.compute(&engine);
-                let res = if response.starts_with("(integer)") {
+                let res = if response.starts_with(":") {
                     format!("{}\r\n", response)
                 } else if response == "-1" {
                     format!("${}\r\n", response)

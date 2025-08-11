@@ -104,10 +104,10 @@ impl AppCommand {
                     let count = new_value.split(',').count();
                     engine.set(list_key, new_value);
 
-                    return format!("(integer) {}", count);
+                    return format!(":{}", count);
                 } else {
                     engine.set(list_key, value.clone());
-                    return String::from("(integer) 1");
+                    return String::from(":1");
                 }
             }
         }
