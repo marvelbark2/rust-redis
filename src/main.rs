@@ -25,15 +25,13 @@ fn main() {
 }
 
 fn handle_stream(mut stream: TcpStream) {
-    let mut buffer: [u8; 1024] = [0; 1024];
-    match stream.read(&mut buffer) {
-        Ok(_) => {
-            let req = str::from_utf8(&buffer).unwrap();
-
-            req.split("\n").for_each(|_| {
-                stream.write(b"+PONG\r\n").unwrap();
-            });
+    let mut buf = [0; 512];
+    loop {
+        let read_count = stream.read(&mut buf).unwrap();
+        if read_count == 0 {
+            break;
         }
-        Err(e) => println!("Error while parsing answer {}", e),
+
+        stream.write(b"+PONG\r\n").unwrap();
     }
 }
