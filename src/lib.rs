@@ -138,7 +138,7 @@ impl AppCommand {
                         return resp_array;
                     }
                 }
-                String::from("*0")
+                String::from("*0\r\n")
             }
         }
     }
