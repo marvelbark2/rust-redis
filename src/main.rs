@@ -26,12 +26,10 @@ fn main() {
 }
 
 fn handle_stream(mut stream: TcpStream) {
-    // Read line-by-line so partial reads or extra bytes don't confuse parsing.
     let mut reader = BufReader::new(stream.try_clone().unwrap());
-    let mut line = String::new();
 
     loop {
-        line.clear();
+        let mut line = String::new();
         let n = reader.read_line(&mut line).unwrap();
         if n == 0 {
             break; // connection closed
