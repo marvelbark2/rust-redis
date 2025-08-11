@@ -16,6 +16,7 @@ pub enum AppCommand {
     Exists(String),
     RPush(String, String),
     LRANGE(String, i32, i32),
+    LPush(String, String),
 }
 
 pub trait Engine {
@@ -157,6 +158,11 @@ impl AppCommand {
                 }
                 String::from("*0\r\n")
             }
+            AppCommand::LPush(key, values) => {
+                let reversed_values: Vec<&str> = values.split('\r').rev().collect();
+                let rpush_command = AppCommand::RPush(key.clone(), reversed_values.join("\n"));
+                rpush_command.compute(writter)
+            }
         }
     }
 
@@ -198,6 +204,10 @@ impl AppCommand {
                 let start_index: i32 = parts[2].parse().unwrap_or(0);
                 let end_index: i32 = parts[3].parse().unwrap_or(-1);
                 Some(AppCommand::LRANGE(key, start_index, end_index))
+            }
+            "LPUSH" if parts.len() > 2 => {
+                let all_items = parts[2..].join("\r");
+                Some(AppCommand::LPush(parts[1].clone(), all_items))
             }
             _ => None,
         }
