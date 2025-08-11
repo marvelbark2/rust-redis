@@ -50,6 +50,8 @@ fn handle_stream(mut stream: TcpStream) {
         };
 
         res.push_str("\r\n");
+
+        println!("Recv: {}, Send: {}", req, res);
         stream.write_all(res.as_bytes()).unwrap();
     }
 }
