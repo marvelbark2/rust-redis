@@ -123,15 +123,17 @@ impl AppCommand {
 
                 if let Some(existing) = engine.get(&list_key) {
                     let items: Vec<&str> = existing.split('\r').collect();
+                    let len = items.len();
+
                     let start = if *start_index < 0 {
-                        items.len() + (*start_index) as usize
+                        len.checked_add_signed(*start_index as isize).unwrap_or(0)
                     } else {
                         *start_index as usize
                     };
-                    let end = if *end_index >= items.len() as i32 {
-                        items.len()
+                    let end = if *end_index >= len as i32 {
+                        len
                     } else if *end_index < 0 {
-                        items.len() + (*end_index) as usize + 1 as usize
+                        len + (*end_index) as usize + 1 as usize
                     } else {
                         (*end_index + 1) as usize
                     };
