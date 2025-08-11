@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 use std::{
-    io::Write,
+    io::{Read, Write},
     net::{TcpListener, TcpStream},
 };
 
@@ -25,5 +25,15 @@ fn main() {
 }
 
 fn handle_stream(mut stream: TcpStream) {
-    stream.write_all(b"+PONG\r\n").unwrap();
+    let mut buffer: [u8; 1024] = [0; 1024];
+    match stream.read(&mut buffer) {
+        Ok(_) => {
+            let req = str::from_utf8(&buffer).unwrap();
+
+            req.split("\n").for_each(|_| {
+                stream.write(b"+PONG\r\n").unwrap();
+            });
+        }
+        Err(e) => println!("Error while parsing answer {}", e),
+    }
 }
