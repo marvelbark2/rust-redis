@@ -516,7 +516,7 @@ impl AppCommand {
                             continue;
                         }
 
-                        let data = engine.stream_search_range(key, id.clone(), "++".to_string());
+                        let data = engine.stream_search_range(key, id.clone(), "+".to_string());
 
                         if !data.is_empty() {
                             handled_keys.insert(key.clone());
