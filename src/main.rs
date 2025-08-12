@@ -14,6 +14,7 @@ async fn main() -> std::io::Result<()> {
         list_map: HashMap::new(),
         stream_map: HashMap::new(),
     }));
+
     loop {
         let (stream, _) = listener.accept().await?;
         let engine_mutex_clone = Arc::clone(&engine_mutex);

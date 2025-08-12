@@ -40,6 +40,7 @@ pub trait Engine {
     fn list_pop_left(&mut self, key: &str) -> Option<String>;
     fn stream_push(&mut self, key: String, id: String, value: String) -> String;
     fn stream_exists(&self, key: &str) -> bool;
+    fn stream_valid_id(&self, key: &str, id: &str) -> bool;
 }
 #[derive(Debug, Clone)]
 pub struct HashMapEngine {
@@ -126,6 +127,18 @@ impl Engine for HashMapEngine {
     }
     fn stream_exists(&self, key: &str) -> bool {
         self.stream_map.contains_key(key)
+    }
+
+    fn stream_valid_id(&self, key: &str, id: &str) -> bool {
+        let stream = self.stream_map.get(key);
+        if let Some(stream) = stream {
+            if let Some((first_id, _)) = stream.iter().next() {
+                return &id.to_string() >= first_id;
+            }
+            return false; // Empty stream
+        } else {
+            return false;
+        }
     }
 }
 
@@ -299,6 +312,29 @@ impl AppCommand {
             }
             AppCommand::XAdd(key, id, values) => {
                 let mut engine = writter.write().await;
+
+                let id_parts = id.split('-').collect::<Vec<&str>>();
+                if id_parts.len() != 2 {
+                    return RespFormatter::format_error("Invalid ID format");
+                }
+
+                let ms = id_parts[0].parse::<u64>().map_err(|_| "Invalid ms");
+                let seq = id_parts[1].parse::<u64>().map_err(|_| "Invalid seq");
+
+                if ms.is_err() || seq.is_err() {
+                    return RespFormatter::format_error("Invalid ID format");
+                }
+
+                if ms.unwrap() == 0 && seq.unwrap() == 0 {
+                    return RespFormatter::format_error(
+                        "The ID specified in XADD must be greater than 0-0",
+                    );
+                }
+
+                if !engine.stream_valid_id(key, id) {
+                    return RespFormatter::format_error("Invalid ID");
+                }
+
                 let id = engine.stream_push(key.clone(), id.clone(), values.clone());
                 return RespFormatter::format_bulk_string(&id);
             }
@@ -365,7 +401,7 @@ impl AppCommand {
             }
             "TYPE" if len > 1 => Some(AppCommand::Type(parts[1].clone())),
             "XADD" if len > 2 => {
-                if len < 4 {
+                if len < 4 || len % 2 == 0 {
                     return None;
                 }
                 let values = parts[3..].join("\r");
