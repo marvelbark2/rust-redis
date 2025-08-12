@@ -371,7 +371,13 @@ impl AppCommand {
                     //  &id.to_string() > first_id
                     let last_id = engine.stream_last_id(key);
                     if let Some(first_id) = last_id {
-                        if id > &first_id || engine.stream_id_exists(key, id) {
+                        println!(
+                            "first id: {}, id: {}, id_exists: {}",
+                            first_id,
+                            id_str,
+                            engine.stream_id_exists(key, &id_str)
+                        );
+                        if id < &first_id || engine.stream_id_exists(key, id) {
                             return RespFormatter::format_error(
                             "The ID specified in XADD is equal or smaller than the target stream top item",
                         );
