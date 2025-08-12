@@ -132,7 +132,9 @@ impl Engine for HashMapEngine {
     fn stream_valid_id(&self, key: &str, id: &str) -> bool {
         let stream = self.stream_map.get(key);
         if let Some(stream) = stream {
-            if let Some((first_id, _)) = stream.iter().next() {
+            if stream.get(id).is_some() {
+                return false;
+            } else if let Some((first_id, _)) = stream.iter().next() {
                 println!(
                     "[stream_valid_id] checking if {} >= {}, Result {:?}",
                     id,
