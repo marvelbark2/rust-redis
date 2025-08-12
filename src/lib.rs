@@ -137,9 +137,9 @@ impl Engine for HashMapEngine {
                     "[stream_valid_id] checking if {} >= {}, Result {:?}",
                     id,
                     first_id,
-                    &id.to_string() >= first_id
+                    &id.to_string() > first_id
                 );
-                return &id.to_string() >= first_id;
+                return &id.to_string() > first_id;
             }
             return true;
         } else {
