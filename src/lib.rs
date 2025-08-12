@@ -797,10 +797,6 @@ impl RespFormatter {
     }
 
     pub fn format_xread(streams: &[(String, Vec<(String, Vec<String>)>)]) -> String {
-        if streams.is_empty() {
-            return String::from("$-1\r\n");
-        }
-
         let mut out = String::new();
         out.push_str(&format!("*{}\r\n", streams.len()));
 
