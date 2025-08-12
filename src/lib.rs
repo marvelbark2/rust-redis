@@ -413,19 +413,17 @@ impl AppCommand {
                     return RespFormatter::format_array(&[]);
                 }
 
-                let mut formatted_results = Vec::new();
-                for (id, value) in results {
-                    let formatted_value = RespFormatter::format_array(
-                        value
-                            .split("\r")
-                            .map(|s| s.to_string())
-                            .collect::<Vec<String>>()
-                            .as_slice(),
-                    );
-                    formatted_results.push(id);
-                    formatted_results.push(formatted_value);
-                }
-                return RespFormatter::format_array(&formatted_results);
+                let results_vec: Vec<(String, Vec<String>)> = results
+                    .into_iter()
+                    .map(|(id, payload)| {
+                        let fields: Vec<String> =
+                            payload.split_whitespace().map(|s| s.to_string()).collect();
+                        (id, fields)
+                    })
+                    .collect();
+
+                let resp = RespFormatter::format_xrange(&results_vec);
+                return resp;
             }
         }
     }
