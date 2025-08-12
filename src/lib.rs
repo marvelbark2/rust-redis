@@ -512,11 +512,7 @@ impl AppCommand {
                             (id, fields)
                         })
                         .collect();
-                    if !results_vec.is_empty() {
-                        per_stream.push((key.clone(), results_vec));
-                    } else {
-                        per_stream.push((key.clone(), vec![]));
-                    }
+                    per_stream.push((key.clone(), results_vec));
                 }
                 RespFormatter::format_xread(&per_stream)
             }
