@@ -17,6 +17,7 @@ fn main() {
 
     let engine_mutex = Arc::new(RwLock::new(HashMapEngine {
         hash_map: HashMap::new(),
+        list_map: HashMap::new(),
     }));
 
     for stream in listener.incoming() {
@@ -48,16 +49,8 @@ fn handle_stream<T: Engine>(mut stream: TcpStream, engine: Arc<RwLock<T>>) -> io
         match command {
             Some(cmd) => {
                 let response = cmd.compute(&engine);
-                let res = if response.starts_with(":") {
-                    format!("{}\r\n", response)
-                } else if response.starts_with("*") {
-                    response
-                } else if response == "-1" {
-                    format!("${}\r\n", response)
-                } else {
-                    format!("+{}\r\n", response)
-                };
-                stream.write_all(res.as_bytes())?;
+
+                stream.write_all(response.as_bytes())?;
             }
             None => {
                 let error_response = "-ERR unknown command\r\n";
