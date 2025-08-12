@@ -332,7 +332,7 @@ impl AppCommand {
                 }
 
                 if !engine.stream_valid_id(key, id) {
-                    return RespFormatter::format_error("Invalid ID");
+                    return RespFormatter::format_error("Invalid ID from engine");
                 }
 
                 let id = engine.stream_push(key.clone(), id.clone(), values.clone());
