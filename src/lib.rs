@@ -24,7 +24,7 @@ pub enum AppCommand {
     LPOP(String, i32),
     BLPOP(String, f32),
     Type(String),
-    XAdd(String, String),
+    XAdd(String, String, String),
 }
 
 pub trait Engine {
@@ -38,7 +38,7 @@ pub trait Engine {
     fn list_range(&self, key: &str, start: i32, end: i32) -> Vec<String>;
     fn list_count(&self, key: &str) -> usize;
     fn list_pop_left(&mut self, key: &str) -> Option<String>;
-    fn stream_push(&mut self, key: String, value: String) -> String;
+    fn stream_push(&mut self, key: String, id: String, value: String) -> String;
     fn stream_exists(&self, key: &str) -> bool;
 }
 #[derive(Debug, Clone)]
@@ -119,9 +119,8 @@ impl Engine for HashMapEngine {
             None
         }
     }
-    fn stream_push(&mut self, key: String, value: String) -> String {
+    fn stream_push(&mut self, key: String, id: String, value: String) -> String {
         let stream = self.stream_map.entry(key).or_default();
-        let id = format!("{}", stream.len() + 1);
         stream.insert(id.clone(), value);
         id
     }
@@ -303,9 +302,9 @@ impl AppCommand {
                     return String::from("+none\r\n");
                 }
             }
-            AppCommand::XAdd(key, value) => {
+            AppCommand::XAdd(key, id, values) => {
                 let mut engine = writter.write().await;
-                let id = engine.stream_push(key.clone(), value.clone());
+                let id = engine.stream_push(key.clone(), id.clone(), values.clone());
                 return RespFormatter::format_bulk_string(&id);
             }
         }
@@ -374,7 +373,8 @@ impl AppCommand {
                 if len < 4 {
                     return None;
                 }
-                Some(AppCommand::XAdd(parts[1].clone(), parts[2].clone()))
+                let values = parts[3..].join("\r");
+                Some(AppCommand::XAdd(parts[1].clone(), parts[2].clone(), values))
             }
             _ => None,
         }
