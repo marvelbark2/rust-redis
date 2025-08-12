@@ -133,6 +133,12 @@ impl Engine for HashMapEngine {
         let stream = self.stream_map.get(key);
         if let Some(stream) = stream {
             if let Some((first_id, _)) = stream.iter().next() {
+                println!(
+                    "[stream_valid_id] checking if {} >= {}, Result {:?}",
+                    id,
+                    first_id,
+                    &id.to_string() >= first_id
+                );
                 return &id.to_string() >= first_id;
             }
             return false; // Empty stream
