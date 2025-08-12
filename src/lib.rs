@@ -500,23 +500,23 @@ impl AppCommand {
             AppCommand::XRead(duration, keys, ids) => {
                 let keys: Vec<String> = keys.split('\r').map(|s| s.to_string()).collect();
 
-                let engine: tokio::sync::RwLockReadGuard<'_, T> = writter.read().await;
-
-                let ids: Vec<String> = ids
-                    .split('\r')
-                    .enumerate()
-                    .map(|(i, s)| {
-                        if s == "$" {
-                            let last_id = engine.stream_last_id(&keys[i]);
-                            if let Some(last_id) = last_id {
-                                return last_id;
+                let ids: Vec<String> = {
+                    let engine = writter.read().await;
+                    ids.split('\r')
+                        .enumerate()
+                        .map(|(i, s)| {
+                            if s == "$" {
+                                let last_id = engine.stream_last_id(&keys[i]);
+                                if let Some(last_id) = last_id {
+                                    return last_id;
+                                }
+                                return "".to_string();
+                            } else {
+                                return s.to_string();
                             }
-                            return "".to_string();
-                        } else {
-                            return s.to_string();
-                        }
-                    })
-                    .collect();
+                        })
+                        .collect()
+                }; // Lock is released here
 
                 let check_streams = |engine: &T| -> Vec<(String, Vec<(String, Vec<String>)>)> {
                     let mut per_stream: Vec<(String, Vec<(String, Vec<String>)>)> = Vec::new();
