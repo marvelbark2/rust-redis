@@ -25,6 +25,7 @@ pub enum AppCommand {
     BLPOP(String, f32),
     Type(String),
     XAdd(String, String, String),
+    XRange(String, String, String),
 }
 
 pub trait Engine {
@@ -42,6 +43,7 @@ pub trait Engine {
     fn stream_exists(&self, key: &str) -> bool;
     fn stream_id_exists(&self, key: &str, id: &str) -> bool;
     fn stream_last_id(&self, key: &str) -> Option<String>;
+    fn stream_search_range(&self, key: &str, start: String, end: String) -> Vec<(String, String)>;
 }
 #[derive(Debug, Clone)]
 pub struct HashMapEngine {
@@ -143,6 +145,18 @@ impl Engine for HashMapEngine {
             stream.last_key_value().map(|(id, _)| id.clone())
         } else {
             None
+        }
+    }
+
+    fn stream_search_range(&self, key: &str, start: String, end: String) -> Vec<(String, String)> {
+        let mut results = Vec::new();
+        if let Some(stream) = self.stream_map.get(key) {
+            for (id, value) in stream.range(start..=end) {
+                results.push((id.clone(), value.clone()));
+            }
+            return results;
+        } else {
+            return results; // Return empty if the stream does not exist
         }
     }
 }
@@ -374,16 +388,9 @@ impl AppCommand {
                         //  &id.to_string() > first_id
                         let last_id = engine.stream_last_id(key);
                         if let Some(first_id) = last_id {
-                            println!(
-                                "first id: {}, id: {}, id_exists: {}",
-                                first_id,
-                                id_str,
-                                engine.stream_id_exists(key, &id_str)
-                            );
                             if id < &first_id || engine.stream_id_exists(key, id) {
                                 return RespFormatter::format_error(
-                            "The ID specified in XADD is equal or smaller than the target stream top item",
-                        );
+                            "The ID specified in XADD is equal or smaller than the target stream top item",);
                             }
                         }
                     }
@@ -391,6 +398,34 @@ impl AppCommand {
 
                 let id = engine.stream_push(key.clone(), id_str, values.clone());
                 return RespFormatter::format_bulk_string(&id);
+            }
+            AppCommand::XRange(key, min, max) => {
+                let engine = writter.read().await;
+                if !engine.stream_exists(&key) {
+                    return RespFormatter::format_array(&[]);
+                }
+
+                let start = min.clone();
+                let end = max.clone();
+
+                let results = engine.stream_search_range(key, start, end);
+                if results.is_empty() {
+                    return RespFormatter::format_array(&[]);
+                }
+
+                let mut formatted_results = Vec::new();
+                for (id, value) in results {
+                    let formatted_value = RespFormatter::format_array(
+                        value
+                            .split("\r")
+                            .map(|s| s.to_string())
+                            .collect::<Vec<String>>()
+                            .as_slice(),
+                    );
+                    formatted_results.push(id);
+                    formatted_results.push(formatted_value);
+                }
+                return RespFormatter::format_array(&formatted_results);
             }
         }
     }
@@ -460,6 +495,16 @@ impl AppCommand {
                 }
                 let values = parts[3..].join("\r");
                 Some(AppCommand::XAdd(parts[1].clone(), parts[2].clone(), values))
+            }
+            "XRANGE" if len > 3 => {
+                if len < 4 {
+                    return None;
+                }
+                Some(AppCommand::XRange(
+                    parts[1].clone(),
+                    parts[2].clone(),
+                    parts[3].clone(),
+                ))
             }
             _ => None,
         }
