@@ -12,6 +12,7 @@ async fn main() -> std::io::Result<()> {
     let engine_mutex = Arc::new(RwLock::new(HashMapEngine {
         hash_map: HashMap::new(),
         list_map: HashMap::new(),
+        stream_map: HashMap::new(),
     }));
     loop {
         let (stream, _) = listener.accept().await?;

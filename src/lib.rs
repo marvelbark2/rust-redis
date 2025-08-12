@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io;
 use std::{
     collections::{HashMap, VecDeque},
@@ -23,6 +24,7 @@ pub enum AppCommand {
     LPOP(String, i32),
     BLPOP(String, f32),
     Type(String),
+    XAdd(String, String),
 }
 
 pub trait Engine {
@@ -36,11 +38,14 @@ pub trait Engine {
     fn list_range(&self, key: &str, start: i32, end: i32) -> Vec<String>;
     fn list_count(&self, key: &str) -> usize;
     fn list_pop_left(&mut self, key: &str) -> Option<String>;
+    fn stream_push(&mut self, key: String, value: String) -> String;
+    fn stream_exists(&self, key: &str) -> bool;
 }
 #[derive(Debug, Clone)]
 pub struct HashMapEngine {
     pub hash_map: HashMap<String, String>,
     pub list_map: HashMap<String, VecDeque<String>>,
+    pub stream_map: HashMap<String, BTreeMap<String, String>>,
 }
 
 impl Engine for HashMapEngine {
@@ -113,6 +118,15 @@ impl Engine for HashMapEngine {
         } else {
             None
         }
+    }
+    fn stream_push(&mut self, key: String, value: String) -> String {
+        let stream = self.stream_map.entry(key).or_default();
+        let id = format!("{}", stream.len() + 1);
+        stream.insert(id.clone(), value);
+        id
+    }
+    fn stream_exists(&self, key: &str) -> bool {
+        self.stream_map.contains_key(key)
     }
 }
 
@@ -283,9 +297,16 @@ impl AppCommand {
                 let engine = writter.read().await;
                 if engine.get(key).is_some() {
                     return String::from("+string\r\n");
+                } else if engine.stream_exists(key) {
+                    return String::from("+stream\r\n");
                 } else {
                     return String::from("+none\r\n");
                 }
+            }
+            AppCommand::XAdd(key, value) => {
+                let mut engine = writter.write().await;
+                let id = engine.stream_push(key.clone(), value.clone());
+                return RespFormatter::format_bulk_string(&id);
             }
         }
     }
@@ -349,6 +370,12 @@ impl AppCommand {
                 }
             }
             "TYPE" if len > 1 => Some(AppCommand::Type(parts[1].clone())),
+            "XADD" if len > 2 => {
+                if len < 4 {
+                    return None;
+                }
+                Some(AppCommand::XAdd(parts[1].clone(), parts[2].clone()))
+            }
             _ => None,
         }
     }
