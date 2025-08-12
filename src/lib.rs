@@ -502,21 +502,21 @@ impl AppCommand {
                         continue;
                     }
 
-                    let data = engine.stream_get_data(key, id);
-                    if data.is_none() {
-                        continue;
-                    }
+                    let data = engine.stream_search_range(key, id.clone(), "+".to_string());
 
-                    per_stream.push((
-                        key.clone(),
-                        vec![(
-                            id.clone(),
-                            data.unwrap()
-                                .split_whitespace()
-                                .map(|s| s.to_string())
-                                .collect(),
-                        )],
-                    ));
+                    let results_vec: Vec<(String, Vec<String>)> = data
+                        .into_iter()
+                        .map(|(id, payload)| {
+                            let fields: Vec<String> =
+                                payload.split_whitespace().map(|s| s.to_string()).collect();
+                            (id, fields)
+                        })
+                        .collect();
+                    if !results_vec.is_empty() {
+                        per_stream.push((key.clone(), results_vec));
+                    } else {
+                        per_stream.push((key.clone(), vec![]));
+                    }
                 }
                 RespFormatter::format_xread(&per_stream)
             }
