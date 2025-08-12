@@ -338,7 +338,7 @@ impl AppCommand {
                 }
 
                 if !engine.stream_valid_id(key, id) {
-                    return RespFormatter::format_error("Invalid ID");
+                    return RespFormatter::format_error("The ID specified in XADD is equal or smaller than the target stream top item");
                 }
 
                 let id = engine.stream_push(key.clone(), id.clone(), values.clone());
