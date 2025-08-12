@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use codecrafters_redis::{AppCommand, AppCommandParser, Engine, HashMapEngine};
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:6380").await?;
+    let listener = TcpListener::bind("127.0.0.1:6379").await?;
 
     let engine_mutex = Arc::new(RwLock::new(HashMapEngine {
         hash_map: HashMap::new(),
