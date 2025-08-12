@@ -535,19 +535,36 @@ impl AppCommand {
                     return RespFormatter::format_xread(&initial_results);
                 }
 
-                if *duration <= 0 {
+                if *duration < 0 {
                     return RespFormatter::format_xread(&[]);
                 }
 
-                let timeout = Duration::from_millis(*duration as u64);
-                tokio::time::sleep(timeout).await;
+                // If timeout is 0, this is a blocking call that waits indefinitely
+                // If timeout > 0, wait for the specified duration in milliseconds
+                if *duration == 0 {
+                    loop {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
 
-                let final_results = {
-                    let engine = writter.read().await;
-                    check_streams(&*engine)
-                };
+                        let results = {
+                            let engine = writter.read().await;
+                            check_streams(&*engine)
+                        };
 
-                return RespFormatter::format_xread(&final_results);
+                        if !results.is_empty() {
+                            return RespFormatter::format_xread(&results);
+                        }
+                    }
+                } else {
+                    let timeout = Duration::from_millis(*duration as u64);
+                    tokio::time::sleep(timeout).await;
+
+                    let final_results = {
+                        let engine = writter.read().await;
+                        check_streams(&*engine)
+                    };
+
+                    return RespFormatter::format_xread(&final_results);
+                }
             }
         }
     }
@@ -641,7 +658,7 @@ impl AppCommand {
                     let keys = after_streams[..mid].join("\r");
                     let ids = after_streams[mid..].join("\r");
 
-                    Some(AppCommand::XRead(0, keys, ids))
+                    Some(AppCommand::XRead(-1, keys, ids))
                 } else {
                     let after_streams = &parts[4..];
 
