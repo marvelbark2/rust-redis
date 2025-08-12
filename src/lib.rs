@@ -26,7 +26,7 @@ pub enum AppCommand {
     Type(String),
     XAdd(String, String, String),
     XRange(String, String, String),
-    XRead(String, String),
+    XRead(i32, String, String),
 }
 
 pub trait Engine {
@@ -482,30 +482,55 @@ impl AppCommand {
                 let resp = RespFormatter::format_xrange(&results_vec);
                 return resp;
             }
-            AppCommand::XRead(keys, ids) => {
+            AppCommand::XRead(duration, keys, ids) => {
                 let mut per_stream: Vec<(String, Vec<(String, Vec<String>)>)> = Vec::new();
                 let keys: Vec<String> = keys.split('\r').map(|s| s.to_string()).collect();
                 let ids: Vec<String> = ids.split('\r').map(|s| s.to_string()).collect();
 
-                let engine = writter.read().await;
-                for (key, id) in keys.iter().zip(ids.iter()) {
-                    if !engine.stream_exists(key) {
-                        continue;
-                    }
-
-                    let data = engine.stream_search_range(key, id.clone(), "+".to_string());
-
-                    let results_vec: Vec<(String, Vec<String>)> = data
-                        .into_iter()
-                        .map(|(id, payload)| {
-                            let fields: Vec<String> =
-                                payload.split_whitespace().map(|s| s.to_string()).collect();
-                            (id, fields)
-                        })
-                        .collect();
-                    per_stream.push((key.clone(), results_vec));
+                // Sleep with tokio to duration (ms)
+                if *duration > 0 {
+                    tokio::time::sleep(Duration::from_millis(*duration as u64)).await;
                 }
-                RespFormatter::format_xread(&per_stream)
+                let engine: tokio::sync::RwLockReadGuard<'_, T> = writter.read().await;
+
+                let mut handled_keys: HashSet<String> = HashSet::new();
+
+                for _ in 0..2 {
+                    for (key, id) in keys.iter().zip(ids.iter()) {
+                        if !engine.stream_exists(key) {
+                            continue;
+                        }
+
+                        let data = engine.stream_search_range(key, id.clone(), "+".to_string());
+
+                        if !data.is_empty() {
+                            handled_keys.insert(key.clone());
+                        }
+
+                        let results_vec: Vec<(String, Vec<String>)> = data
+                            .into_iter()
+                            .map(|(id, payload)| {
+                                let fields: Vec<String> =
+                                    payload.split_whitespace().map(|s| s.to_string()).collect();
+                                (id, fields)
+                            })
+                            .collect();
+
+                        per_stream.push((key.clone(), results_vec));
+
+                        if handled_keys.len() == keys.len() {
+                            break;
+                        }
+
+                        if *duration > 0 {
+                            tokio::time::sleep(Duration::from_millis(*duration as u64)).await;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                return RespFormatter::format_xread(&per_stream);
             }
         }
     }
@@ -587,17 +612,33 @@ impl AppCommand {
                 ))
             }
             "XREAD" if len > 3 => {
-                let after_streams = &parts[2..];
+                let type_xread = parts[1].to_uppercase();
+                if type_xread == "STREAM" {
+                    let after_streams = &parts[2..];
 
-                if after_streams.len() % 2 != 0 {
-                    return None; // Must be even number of streams and ids
+                    if after_streams.len() % 2 != 0 {
+                        return None; // Must be even number of streams and ids
+                    }
+                    // split in half
+                    let mid = after_streams.len() / 2;
+                    let keys = after_streams[..mid].join("\r");
+                    let ids = after_streams[mid..].join("\r");
+
+                    Some(AppCommand::XRead(0, keys, ids))
+                } else {
+                    let after_streams = &parts[4..];
+
+                    if after_streams.len() % 2 != 0 {
+                        return None; // Must be even number of streams and ids
+                    }
+                    // split in half
+                    let mid = after_streams.len() / 2;
+                    let keys = after_streams[..mid].join("\r");
+                    let ids = after_streams[mid..].join("\r");
+
+                    let duration = parts[2].parse::<i32>().unwrap_or(0);
+                    Some(AppCommand::XRead(duration, keys, ids))
                 }
-                // split in half
-                let mid = after_streams.len() / 2;
-                let keys = after_streams[..mid].join("\r");
-                let ids = after_streams[mid..].join("\r");
-
-                Some(AppCommand::XRead(keys, ids))
             }
             _ => None,
         }
