@@ -539,19 +539,73 @@ impl AppCommand {
                     return RespFormatter::format_xread(&[]);
                 }
 
-                // If timeout is 0, this is a blocking call that waits indefinitely
-                // If timeout > 0, wait for the specified duration in milliseconds
                 if *duration == 0 {
-                    loop {
-                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    let all_ids_are_dollar = ids.iter().all(|id| id == "$");
 
-                        let results = {
+                    if all_ids_are_dollar {
+                        let mut last_ids: HashMap<String, Option<String>> = {
                             let engine = writter.read().await;
-                            check_streams(&*engine)
+                            keys.iter()
+                                .map(|key| (key.clone(), engine.stream_last_id(key)))
+                                .collect()
                         };
 
-                        if !results.is_empty() {
-                            return RespFormatter::format_xread(&results);
+                        loop {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+
+                            let mut has_new_data = false;
+                            {
+                                let engine = writter.read().await;
+                                for key in &keys {
+                                    let current_last_id = engine.stream_last_id(key);
+                                    let previous_last_id = last_ids.get(key).unwrap();
+
+                                    if current_last_id != *previous_last_id {
+                                        if let (Some(current), Some(previous)) =
+                                            (&current_last_id, previous_last_id)
+                                        {
+                                            if current > previous {
+                                                has_new_data = true;
+                                                break;
+                                            }
+                                        } else if current_last_id.is_some()
+                                            && previous_last_id.is_none()
+                                        {
+                                            has_new_data = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if has_new_data {
+                                let results = {
+                                    let engine = writter.read().await;
+                                    check_streams(&*engine)
+                                };
+
+                                if !results.is_empty() {
+                                    return RespFormatter::format_xread(&results);
+                                }
+
+                                let engine = writter.read().await;
+                                for key in &keys {
+                                    last_ids.insert(key.clone(), engine.stream_last_id(key));
+                                }
+                            }
+                        }
+                    } else {
+                        loop {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+
+                            let results = {
+                                let engine = writter.read().await;
+                                check_streams(&*engine)
+                            };
+
+                            if !results.is_empty() {
+                                return RespFormatter::format_xread(&results);
+                            }
                         }
                     }
                 } else {
