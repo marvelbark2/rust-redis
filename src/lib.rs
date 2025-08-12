@@ -383,15 +383,18 @@ impl AppCommandParser {
 
             let mut buf = vec![0u8; len];
             reader.read_exact(&mut buf)?;
-            parts.push(str::from_utf8(&buf).unwrap().to_string());
+
+            let part = match String::from_utf8(buf.clone()) {
+                Ok(s) => s,
+                Err(_) => format!("Value (binary) length: {}", buf.len()),
+            };
+
+            parts.push(part);
 
             // Consume trailing \r\n
             let mut crlf = [0u8; 2];
             reader.read_exact(&mut crlf)?;
         }
-
-        println!("[parse_resp_array] Parsed parts: {:?}", parts);
-
         Ok(parts)
     }
 
