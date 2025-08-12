@@ -512,7 +512,7 @@ impl AppCommand {
 
                 for _ in 0..2 {
                     for (key, id) in keys.iter().zip(ids.iter()) {
-                        if !engine.stream_exists(key) {
+                        if !engine.stream_exists(key) || handled_keys.contains(key) {
                             continue;
                         }
 
