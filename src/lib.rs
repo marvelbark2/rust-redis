@@ -1,9 +1,11 @@
+use std::io;
 use std::{
     collections::{HashMap, VecDeque},
-    io::{self, BufRead},
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
+use tokio::sync::RwLock;
 
 #[derive(PartialEq)]
 pub enum AppCommand {
@@ -20,6 +22,7 @@ pub enum AppCommand {
     LLen(String),
     LPOP(String, i32),
     BLPOP(String, f32),
+    Type(String),
 }
 
 pub trait Engine {
@@ -147,12 +150,12 @@ fn is_expired(time: String) -> bool {
 }
 
 impl AppCommand {
-    pub fn compute<T: Engine>(&self, writter: &Arc<RwLock<T>>) -> String {
+    pub async fn compute<T: Engine>(&self, writter: &Arc<RwLock<T>>) -> String {
         match self {
             AppCommand::Ping => String::from("+PONG\r\n"),
             AppCommand::Echo(msg) => format!("+{}\r\n", msg),
             AppCommand::Set(key, value, ttl) => {
-                let mut engine = writter.write().unwrap();
+                let mut engine = writter.write().await;
                 engine.set(key.to_string(), value.to_string());
                 if *ttl > 0 {
                     let duration = generate_duration(*ttl);
@@ -162,7 +165,7 @@ impl AppCommand {
                 format!("+OK\r\n")
             }
             AppCommand::Get(key) => {
-                let mut engine = writter.write().unwrap();
+                let mut engine = writter.write().await;
                 if let Some(v) = engine.get(key) {
                     let expiration_key = format!("{}_expiration", key);
                     if let Some(expiration) = engine.get(&expiration_key) {
@@ -182,7 +185,7 @@ impl AppCommand {
             AppCommand::Keys(pattern) => format!("Keys matching {} are ...", pattern),
             AppCommand::Exists(key) => format!("{} exists", key),
             AppCommand::RPush(key, value) => {
-                let mut engine = writter.write().unwrap();
+                let mut engine = writter.write().await;
                 let list_key = format!("{}_list", key);
 
                 if value.contains("\r") {
@@ -194,7 +197,7 @@ impl AppCommand {
                 return RespFormatter::format_integer(count);
             }
             AppCommand::LRANGE(key, start_index, end_index) => {
-                let engine = writter.write().unwrap();
+                let engine = writter.write().await;
                 let list_key = format!("{}_list", key);
 
                 if start_index > end_index && *end_index >= 0 && *start_index >= 0 {
@@ -209,20 +212,20 @@ impl AppCommand {
                 let reversed_values: Vec<String> =
                     values.split('\r').rev().map(|s| s.to_string()).collect();
 
-                let mut engine: std::sync::RwLockWriteGuard<'_, T> = writter.write().unwrap();
+                let mut engine = writter.write().await;
                 let list_key = format!("{}_list", key);
 
                 let count = engine.list_push_left_many(list_key, reversed_values);
                 return RespFormatter::format_integer(count);
             }
             AppCommand::LLen(key) => {
-                let engine = writter.read().unwrap();
+                let engine = writter.read().await;
                 let list_key = format!("{}_list", key);
                 let count = engine.list_count(&list_key);
                 return RespFormatter::format_integer(count);
             }
             AppCommand::LPOP(key, len) => {
-                let mut engine = writter.write().unwrap();
+                let mut engine = writter.write().await;
                 let list_key = format!("{}_list", key);
 
                 if len > &1 {
@@ -253,7 +256,7 @@ impl AppCommand {
                 );
 
                 loop {
-                    let mut engine = writter.write().unwrap();
+                    let mut engine = writter.write().await;
                     list_key.retain(|key| {
                         let key_list = format!("{}_list", key);
                         if let Some(value) = engine.list_pop_left(&key_list) {
@@ -274,6 +277,14 @@ impl AppCommand {
                             return RespFormatter::format_array(&result);
                         }
                     }
+                }
+            }
+            AppCommand::Type(key) => {
+                let engine = writter.read().await;
+                if engine.get(key).is_some() {
+                    return String::from("+string\r\n");
+                } else {
+                    return String::from("+none\r\n");
                 }
             }
         }
@@ -337,6 +348,7 @@ impl AppCommand {
                     Some(AppCommand::BLPOP(keys.join("\r"), timeout_str.unwrap()))
                 }
             }
+            "TYPE" if len > 1 => Some(AppCommand::Type(parts[1].clone())),
             _ => None,
         }
     }
@@ -348,17 +360,21 @@ pub struct AppCommandParser {
 
 impl AppCommandParser {
     pub fn new() -> Self {
-        AppCommandParser {
+        Self {
             line: String::new(),
         }
     }
-    pub fn parse_resp_array<R: BufRead>(mut self: Self, reader: &mut R) -> io::Result<Vec<String>> {
+
+    pub async fn parse_resp_array_async<R>(&mut self, reader: &mut R) -> io::Result<Vec<String>>
+    where
+        R: AsyncBufRead + Unpin,
+    {
         let mut line = String::new();
-        reader.read_line(&mut line)?;
+        reader.read_line(&mut line).await?;
         self.line = line;
 
         if !self.line.starts_with('*') {
-            return self.parse_simple();
+            return self.parse_simple_async();
         }
         let count: usize = self.line[1..]
             .trim()
@@ -369,7 +385,7 @@ impl AppCommandParser {
 
         for _ in 0..count {
             let mut line = String::new();
-            reader.read_line(&mut line)?;
+            reader.read_line(&mut line).await?;
             if !line.starts_with('$') {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -382,7 +398,7 @@ impl AppCommandParser {
                 .map_err(|_| io::ErrorKind::InvalidData)?;
 
             let mut buf = vec![0u8; len];
-            reader.read_exact(&mut buf)?;
+            reader.read_exact(&mut buf).await?;
 
             let part = match String::from_utf8(buf.clone()) {
                 Ok(s) => s,
@@ -393,23 +409,23 @@ impl AppCommandParser {
 
             // Consume trailing \r\n
             let mut crlf = [0u8; 2];
-            reader.read_exact(&mut crlf)?;
+            reader.read_exact(&mut crlf).await?;
         }
         Ok(parts)
     }
 
-    pub fn parse_simple(self: &Self) -> io::Result<Vec<String>> {
-        let line = &self.line;
+    /// Inline/simple command parser (space-separated), returning bytes.
+    fn parse_simple_async(&self) -> io::Result<Vec<String>> {
+        let line = self.line.trim_end(); // drop trailing \r\n
         if line.is_empty() {
             return Ok(vec![]);
         }
 
-        let parts: Vec<String> = line
-            .trim()
+        let parts = line
             .split_whitespace()
             .map(|s| s.to_string())
-            .collect();
-        println!("[parse_simple] Parsed parts: {:?}", parts);
+            .collect::<Vec<String>>();
+
         Ok(parts)
     }
 }

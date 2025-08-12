@@ -1,61 +1,65 @@
-#![allow(unused_imports)]
-use std::{
-    collections::{hash_map, HashMap},
-    io::{self, BufRead, BufReader, Write},
-    net::{TcpListener, TcpStream},
-    process::Command,
-    sync::{Arc, Mutex, RwLock},
-    thread,
-};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::io::{AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::RwLock;
 
 use codecrafters_redis::{AppCommand, AppCommandParser, Engine, HashMapEngine};
-
-fn main() {
-    // Uncomment this block to pass the first stage
-    //
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:6380").await?;
 
     let engine_mutex = Arc::new(RwLock::new(HashMapEngine {
         hash_map: HashMap::new(),
         list_map: HashMap::new(),
     }));
-
-    for stream in listener.incoming() {
-        let engine_mutex = Arc::clone(&engine_mutex);
-        thread::spawn(move || match stream {
-            Ok(stream) => {
-                handle_stream(stream, engine_mutex).unwrap_or_else(|e| {
-                    eprintln!("Error handling stream: {}", e);
-                });
-            }
-            Err(e) => {
-                println!("error: {}", e);
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let engine_mutex_clone = Arc::clone(&engine_mutex);
+        tokio::spawn(async move {
+            if let Err(e) = handle_stream(stream, engine_mutex_clone).await {
+                eprintln!("Error handling stream: {}", e);
             }
         });
     }
 }
 
-fn handle_stream<T: Engine>(mut stream: TcpStream, engine: Arc<RwLock<T>>) -> io::Result<()> {
-    let mut reader = BufReader::new(stream.try_clone().unwrap());
+async fn handle_stream<T: Engine + Send + Sync + 'static>(
+    stream: TcpStream,
+    engine: Arc<RwLock<T>>,
+) -> std::io::Result<()> {
+    // Split the stream so reads and writes can proceed independently.
+    let (read_half, mut write_half) = stream.into_split();
+    let mut reader = BufReader::new(read_half);
+
     loop {
-        let command_parser = AppCommandParser::new();
-        let cmd_parts = command_parser.parse_resp_array(&mut reader)?;
+        let cmd_parts = match AppCommandParser::new()
+            .parse_resp_array_async(&mut reader)
+            .await
+        {
+            Ok(parts) => parts,
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                break;
+            }
+            Err(e) => return Err(e),
+        };
+
         if cmd_parts.is_empty() {
             continue;
         }
 
-        let command = AppCommand::from_parts_simple(cmd_parts);
-
-        match command {
+        match AppCommand::from_parts_simple(cmd_parts) {
             Some(cmd) => {
-                let response = cmd.compute(&engine);
-
-                stream.write_all(response.as_bytes())?;
+                let response = cmd.compute(&engine); // see note below
+                write_half.write_all(response.await.as_bytes()).await?;
+                write_half.flush().await?;
             }
             None => {
-                let error_response = "-ERR unknown command\r\n";
-                stream.write_all(error_response.as_bytes())?;
+                write_half.write_all(b"-ERR unknown command\r\n").await?;
+                write_half.flush().await?;
             }
         }
     }
+
+    Ok(())
 }
