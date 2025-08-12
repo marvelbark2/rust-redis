@@ -277,7 +277,6 @@ impl AppCommand {
             }
             AppCommand::BLPOP(keys, seconds) => {
                 let mut list_key: Vec<String> = keys.split('\r').map(|s| s.to_string()).collect();
-
                 let mut result: Vec<String> = Vec::new();
                 let ms_duration = generate_duration_f(*seconds * 1000_f32);
 
