@@ -18,7 +18,7 @@ pub enum AppCommand {
     LRANGE(String, i32, i32),
     LPush(String, String),
     LLen(String),
-    LPOP(String),
+    LPOP(String, i32),
 }
 
 pub trait Engine {
@@ -207,10 +207,21 @@ impl AppCommand {
                 let count = engine.list_count(&list_key);
                 return RespFormatter::format_integer(count);
             }
-            AppCommand::LPOP(key) => {
+            AppCommand::LPOP(key, len) => {
                 let mut engine = writter.write().unwrap();
                 let list_key = format!("{}_list", key);
-                if let Some(value) = engine.list_pop_left(&list_key) {
+
+                if len > &1 {
+                    let mut values = Vec::new();
+                    for _ in 0..*len {
+                        if let Some(value) = engine.list_pop_left(&list_key) {
+                            values.push(value);
+                        } else {
+                            break;
+                        }
+                    }
+                    return RespFormatter::format_array(&values);
+                } else if let Some(value) = engine.list_pop_left(&list_key) {
                     return RespFormatter::format_bulk_string(&value);
                 } else {
                     return RespFormatter::format_bulk_string("");
@@ -262,7 +273,10 @@ impl AppCommand {
                 Some(AppCommand::LPush(parts[1].clone(), parts[2..].join("\r")))
             }
             "LLEN" if parts.len() > 1 => Some(AppCommand::LLen(parts[1].clone())),
-            "LPOP" if parts.len() > 1 => Some(AppCommand::LPOP(parts[1].clone())),
+            "LPOP" if parts.len() > 1 => Some(AppCommand::LPOP(
+                parts[1].clone(),
+                parts[2].parse().unwrap_or(1),
+            )),
             _ => None,
         }
     }
