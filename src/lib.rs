@@ -26,6 +26,7 @@ pub enum AppCommand {
     Type(String),
     XAdd(String, String, String),
     XRange(String, String, String),
+    XRead(String, String),
 }
 
 pub trait Engine {
@@ -44,6 +45,7 @@ pub trait Engine {
     fn stream_id_exists(&self, key: &str, id: &str) -> bool;
     fn stream_last_id(&self, key: &str) -> Option<String>;
     fn stream_search_range(&self, key: &str, start: String, end: String) -> Vec<(String, String)>;
+    fn stream_get_data(&self, key: &str, id: &str) -> Option<String>;
 }
 #[derive(Debug, Clone)]
 pub struct HashMapEngine {
@@ -186,6 +188,14 @@ impl Engine for HashMapEngine {
             }
         } else {
             return Vec::new(); // Return empty if the stream does not exist
+        }
+    }
+
+    fn stream_get_data(&self, key: &str, id: &str) -> Option<String> {
+        if let Some(stream) = self.stream_map.get(key) {
+            stream.get(id).cloned()
+        } else {
+            None
         }
     }
 }
@@ -481,6 +491,36 @@ impl AppCommand {
                 let resp = RespFormatter::format_xrange(&results_vec);
                 return resp;
             }
+            AppCommand::XRead(keys, ids) => {
+                let mut per_stream: Vec<(String, Vec<(String, Vec<String>)>)> = Vec::new();
+                let keys: Vec<String> = keys.split('\r').map(|s| s.to_string()).collect();
+                let ids: Vec<String> = ids.split('\r').map(|s| s.to_string()).collect();
+
+                let engine = writter.read().await;
+                for (key, id) in keys.iter().zip(ids.iter()) {
+                    if !engine.stream_exists(key) {
+                        continue;
+                    }
+
+                    let data = engine.stream_get_data(key, id);
+                    if data.is_none() {
+                        continue;
+                    }
+
+                    per_stream.push((
+                        key.clone(),
+                        vec![(
+                            id.clone(),
+                            data.unwrap()
+                                .split_whitespace()
+                                .map(|s| s.to_string())
+                                .collect(),
+                        )],
+                    ));
+                }
+
+                RespFormatter::format_xread(&per_stream)
+            }
         }
     }
 
@@ -559,6 +599,19 @@ impl AppCommand {
                     parts[2].clone(),
                     parts[3].clone(),
                 ))
+            }
+            "XREAD" if len > 3 => {
+                let after_streams = &parts[2..];
+
+                if after_streams.len() % 2 != 0 {
+                    return None; // Must be even number of streams and ids
+                }
+                // split in half
+                let mid = after_streams.len() / 2;
+                let keys = after_streams[..mid].join("\r");
+                let ids = after_streams[mid..].join("\r");
+
+                Some(AppCommand::XRead(keys, ids))
             }
             _ => None,
         }
@@ -692,6 +745,30 @@ impl RespFormatter {
             out.push_str(&Self::format_bulk_string(id));
             out.push_str(&Self::format_array(fields));
         }
+        out
+    }
+
+    pub fn format_xread(streams: &[(String, Vec<(String, Vec<String>)>)]) -> String {
+        if streams.is_empty() {
+            return String::from("*-1\r\n");
+        }
+
+        let mut out = String::new();
+        out.push_str(&format!("*{}\r\n", streams.len()));
+
+        for (stream_name, entries) in streams {
+            out.push_str("*2\r\n");
+
+            out.push_str(&RespFormatter::format_bulk_string(stream_name));
+
+            out.push_str(&format!("*{}\r\n", entries.len()));
+            for (id, fields) in entries {
+                out.push_str("*2\r\n");
+                out.push_str(&RespFormatter::format_bulk_string(id));
+                out.push_str(&RespFormatter::format_array(fields)); // fields is Vec<String>
+            }
+        }
+
         out
     }
 }
