@@ -8,6 +8,12 @@ use std::{io, u64};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 use tokio::sync::RwLock;
 
+#[derive(Debug, Clone)]
+pub struct BLPOPWaiter {
+    pub data: String,
+    pub waiters: i64,
+}
+
 #[derive(PartialEq)]
 pub enum AppCommand {
     Ping,
@@ -217,7 +223,11 @@ fn is_expired(time: String) -> bool {
 }
 
 impl AppCommand {
-    pub async fn compute<T: Engine>(&self, writter: &Arc<RwLock<T>>) -> String {
+    pub async fn compute<T: Engine>(
+        &self,
+        writter: &Arc<RwLock<T>>,
+        waiters: &Arc<RwLock<HashMap<String, BLPOPWaiter>>>,
+    ) -> String {
         match self {
             AppCommand::Ping => String::from("+PONG\r\n"),
             AppCommand::Echo(msg) => format!("+{}\r\n", msg),
@@ -312,32 +322,98 @@ impl AppCommand {
                 }
             }
             AppCommand::BLPOP(keys, seconds) => {
-                let mut list_key: Vec<String> = keys.split('\r').map(|s| s.to_string()).collect();
-                let mut result: Vec<String> = Vec::new();
+                let keys: Vec<&str> = keys.split('\r').collect();
+                let mut result = Vec::with_capacity(2); // Pre-allocate for typical case
                 let ms_duration = generate_duration_f(*seconds * 1000_f32);
 
+                let mut engine = writter.write().await;
+
+                for &key in &keys {
+                    let key_list = format!("{}_list", key);
+                    if let Some(value) = engine.list_pop_left(&key_list) {
+                        let second_value = value.clone();
+                        result.push(key.to_string());
+                        result.push(value);
+
+                        if let Some(waiter) = waiters.write().await.get_mut(key) {
+                            waiter.data = second_value;
+                        }
+                        return RespFormatter::format_array(&result);
+                    }
+                }
+
+                drop(engine); // Release write lock early
+                {
+                    let mut waiters_map = waiters.write().await;
+                    for &key in &keys {
+                        waiters_map
+                            .entry(key.to_string())
+                            .and_modify(|w| w.waiters += 1)
+                            .or_insert_with(|| BLPOPWaiter {
+                                waiters: 1,
+                                data: String::new(),
+                            });
+                    }
+                }
+
+                let mut remaining_keys: Vec<String> = keys.iter().map(|s| s.to_string()).collect();
+
                 loop {
+                    let mut waiters_map = waiters.write().await;
                     let mut engine = writter.write().await;
-                    list_key.retain(|key| {
+
+                    remaining_keys.retain(|key| {
+                        // Check engine first
                         let key_list = format!("{}_list", key);
                         if let Some(value) = engine.list_pop_left(&key_list) {
                             result.push(key.clone());
-                            result.push(value);
-                            false
-                        } else {
-                            true
+                            result.push(value.clone());
+
+                            // Update waiter
+                            if let Some(waiter) = waiters_map.get_mut(key) {
+                                waiter.waiters -= 1;
+                                waiter.data = value;
+                                if waiter.waiters <= 0 {
+                                    waiters_map.remove(key);
+                                }
+                            }
+                            return false;
                         }
+
+                        // Check waiter data
+                        if let Some(waiter) = waiters_map.get_mut(key) {
+                            if !waiter.data.is_empty() {
+                                result.push(key.clone());
+                                result.push(waiter.data.clone());
+                                waiter.waiters -= 1;
+                                if waiter.waiters <= 0 {
+                                    waiters_map.remove(key);
+                                }
+                                return false;
+                            }
+                        }
+
+                        true
                     });
 
-                    if list_key.is_empty()
-                        || (seconds > &(0_f32) && is_expired(ms_duration.clone()))
+                    drop(engine); // Release write lock
+                    drop(waiters_map); // Release waiters lock
+
+                    // Check exit conditions
+                    if remaining_keys.is_empty()
+                        || (*seconds > 0.0 && is_expired(ms_duration.clone()))
                     {
-                        if result.is_empty() {
-                            return RespFormatter::format_bulk_string("");
-                        } else {
-                            return RespFormatter::format_array(&result);
-                        }
+                        break;
                     }
+
+                    // Brief yield to prevent busy waiting
+                    tokio::task::yield_now().await;
+                }
+
+                if result.is_empty() {
+                    RespFormatter::format_bulk_string("")
+                } else {
+                    RespFormatter::format_array(&result)
                 }
             }
             AppCommand::Type(key) => {
