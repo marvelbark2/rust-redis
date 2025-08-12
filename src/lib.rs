@@ -8,7 +8,6 @@ use std::{
 use std::{io, u64};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 use tokio::sync::RwLock;
-use tokio::time::Instant;
 
 #[derive(PartialEq)]
 pub enum AppCommand {
@@ -499,59 +498,56 @@ impl AppCommand {
                 return resp;
             }
             AppCommand::XRead(duration, keys, ids) => {
-                let mut per_stream: Vec<(String, Vec<(String, Vec<String>)>)> = Vec::new();
-
                 let keys: Vec<String> = keys.split('\r').map(|s| s.to_string()).collect();
                 let ids: Vec<String> = ids.split('\r').map(|s| s.to_string()).collect();
 
-                let engine: tokio::sync::RwLockReadGuard<'_, T> = writter.read().await;
+                let check_streams = |engine: &T| -> Vec<(String, Vec<(String, Vec<String>)>)> {
+                    let mut per_stream: Vec<(String, Vec<(String, Vec<String>)>)> = Vec::new();
 
-                let mut handled_keys: HashSet<String> = HashSet::new();
-
-                let timeout = Duration::from_millis(*duration as u64);
-                let start_time = Instant::now();
-                loop {
                     for (key, id) in keys.iter().zip(ids.iter()) {
-                        if !engine.stream_exists(key) || handled_keys.contains(key) {
+                        if !engine.stream_exists(key) {
                             continue;
                         }
 
-                        let data = engine.stream_search_range(key, id.clone(), "+".to_string());
+                        let data = engine.stream_search_range(key, id.clone(), "++".to_string());
 
                         if !data.is_empty() {
-                            handled_keys.insert(key.clone());
-                        }
-
-                        let results_vec: Vec<(String, Vec<String>)> = data
-                            .into_iter()
-                            .map(|(id, payload)| {
-                                let fields: Vec<String> =
-                                    payload.split_whitespace().map(|s| s.to_string()).collect();
-                                (id, fields)
-                            })
-                            .collect();
-
-                        if !results_vec.is_empty() {
+                            let results_vec: Vec<(String, Vec<String>)> = data
+                                .into_iter()
+                                .map(|(id, payload)| {
+                                    let fields: Vec<String> =
+                                        payload.split_whitespace().map(|s| s.to_string()).collect();
+                                    (id, fields)
+                                })
+                                .collect();
                             per_stream.push((key.clone(), results_vec));
                         }
-
-                        if handled_keys.len() == keys.len() {
-                            break;
-                        }
                     }
+                    per_stream
+                };
 
-                    if !per_stream.is_empty() || handled_keys.len() == keys.len() {
-                        break;
-                    }
+                let initial_results = {
+                    let engine = writter.read().await;
+                    check_streams(&*engine)
+                };
 
-                    if *duration > 0 && start_time.elapsed() >= timeout {
-                        break;
-                    }
-
-                    tokio::time::sleep(Duration::from_millis(*duration as u64)).await;
+                if !initial_results.is_empty() {
+                    return RespFormatter::format_xread(&initial_results);
                 }
 
-                return RespFormatter::format_xread(&per_stream);
+                if *duration <= 0 {
+                    return RespFormatter::format_xread(&[]);
+                }
+
+                let timeout = Duration::from_millis(*duration as u64);
+                tokio::time::sleep(timeout).await;
+
+                let final_results = {
+                    let engine = writter.read().await;
+                    check_streams(&*engine)
+                };
+
+                return RespFormatter::format_xread(&final_results);
             }
         }
     }
