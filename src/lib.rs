@@ -628,4 +628,16 @@ impl RespFormatter {
         }
         result
     }
+
+    pub fn format_xrange(entries: &[(String, Vec<String>)]) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("*{}\r\n", entries.len()));
+
+        for (id, fields) in entries {
+            out.push_str("*2\r\n");
+            out.push_str(&Self::format_bulk_string(id));
+            out.push_str(&Self::format_array(fields));
+        }
+        out
+    }
 }
