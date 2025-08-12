@@ -268,7 +268,11 @@ impl AppCommand {
                     if list_key.is_empty()
                         || (seconds > &(0_f32) && is_expired(ms_duration.clone()))
                     {
-                        return RespFormatter::format_array(&result);
+                        if result.is_empty() {
+                            return RespFormatter::format_bulk_string("");
+                        } else {
+                            return RespFormatter::format_array(&result);
+                        }
                     }
                 }
             }
