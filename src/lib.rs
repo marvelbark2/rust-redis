@@ -520,7 +520,7 @@ impl AppCommand {
                 }
 
                 if per_stream.is_empty() {
-                    return String::from("*-1\r\n");
+                    return String::from("$-1\r\n");
                 }
                 RespFormatter::format_xread(&per_stream)
             }
