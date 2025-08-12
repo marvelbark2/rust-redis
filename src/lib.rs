@@ -141,9 +141,9 @@ impl Engine for HashMapEngine {
                 );
                 return &id.to_string() >= first_id;
             }
-            return false; // Empty stream
+            return true;
         } else {
-            return false;
+            return true;
         }
     }
 }
@@ -338,7 +338,7 @@ impl AppCommand {
                 }
 
                 if !engine.stream_valid_id(key, id) {
-                    return RespFormatter::format_error("Invalid ID from engine");
+                    return RespFormatter::format_error("Invalid ID");
                 }
 
                 let id = engine.stream_push(key.clone(), id.clone(), values.clone());
