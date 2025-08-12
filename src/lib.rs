@@ -19,7 +19,7 @@ pub enum AppCommand {
     LPush(String, String),
     LLen(String),
     LPOP(String, i32),
-    BLPOP(String),
+    BLPOP(String, i32),
 }
 
 pub trait Engine {
@@ -114,6 +114,9 @@ impl Engine for HashMapEngine {
 }
 
 fn generate_duration(ms: i32) -> String {
+    if ms <= 0 {
+        return String::from("0");
+    }
     let now = SystemTime::now();
     let deadline = now + Duration::from_millis(ms as u64);
     let epoch_ms = deadline.duration_since(UNIX_EPOCH).unwrap().as_millis();
@@ -228,13 +231,29 @@ impl AppCommand {
                     return RespFormatter::format_bulk_string("");
                 }
             }
-            AppCommand::BLPOP(key) => {
-                let list_key = format!("{}_list", key);
+            AppCommand::BLPOP(keys, seconds) => {
+                let mut list_key: Vec<String> = keys.split('\r').map(|s| s.to_string()).collect();
+
+                let mut result: Vec<String> = Vec::new();
+                let ms_duration = generate_duration(*seconds * 1000);
+
+                println!("[BLPOP] waiting for keys: {:?}", list_key);
 
                 loop {
                     let mut engine = writter.write().unwrap();
-                    if let Some(value) = engine.list_pop_left(&list_key) {
-                        return RespFormatter::format_bulk_string(&value);
+                    list_key.retain(|key| {
+                        let key_list = format!("{}_list", key);
+                        if let Some(value) = engine.list_pop_left(&key_list) {
+                            result.push(key.clone());
+                            result.push(value);
+                            false
+                        } else {
+                            true
+                        }
+                    });
+
+                    if list_key.is_empty() || (seconds > &0 && is_expired(ms_duration.clone())) {
+                        return RespFormatter::format_array(&result);
                     }
                 }
             }
@@ -246,10 +265,12 @@ impl AppCommand {
             return None;
         }
 
+        let len = parts.len();
+
         match parts[0].to_uppercase().as_str() {
             "PING" => Some(AppCommand::Ping),
-            "ECHO" if parts.len() > 1 => Some(AppCommand::Echo(parts[1].clone())),
-            "SET" if parts.len() > 2 => Some(AppCommand::Set(
+            "ECHO" if len > 1 => Some(AppCommand::Echo(parts[1].clone())),
+            "SET" if len > 2 => Some(AppCommand::Set(
                 parts[1].clone(),
                 parts[2].clone(),
                 if parts.len() > 4 {
@@ -266,30 +287,37 @@ impl AppCommand {
                     0
                 },
             )),
-            "GET" if parts.len() > 1 => Some(AppCommand::Get(parts[1].clone())),
-            "DEL" if parts.len() > 1 => Some(AppCommand::Del(parts[1].clone())),
-            "KEYS" if parts.len() > 1 => Some(AppCommand::Keys(parts[1].clone())),
-            "EXISTS" if parts.len() > 1 => Some(AppCommand::Exists(parts[1].clone())),
-            "RPUSH" if parts.len() > 2 => {
+            "GET" if len > 1 => Some(AppCommand::Get(parts[1].clone())),
+            "DEL" if len > 1 => Some(AppCommand::Del(parts[1].clone())),
+            "KEYS" if len > 1 => Some(AppCommand::Keys(parts[1].clone())),
+            "EXISTS" if len > 1 => Some(AppCommand::Exists(parts[1].clone())),
+            "RPUSH" if len > 2 => {
                 let all_items = parts[2..].join("\r");
                 Some(AppCommand::RPush(parts[1].clone(), all_items))
             }
-            "LRANGE" if parts.len() > 3 => {
+            "LRANGE" if len > 3 => {
                 let key = parts[1].clone();
                 let start_index: i32 = parts[2].parse().unwrap_or(0);
                 let end_index: i32 = parts[3].parse().unwrap_or(-1);
                 Some(AppCommand::LRANGE(key, start_index, end_index))
             }
-            "LPUSH" if parts.len() > 2 => {
-                Some(AppCommand::LPush(parts[1].clone(), parts[2..].join("\r")))
-            }
-            "LLEN" if parts.len() > 1 => Some(AppCommand::LLen(parts[1].clone())),
-            "LPOP" if parts.len() > 2 => Some(AppCommand::LPOP(
+            "LPUSH" if len > 2 => Some(AppCommand::LPush(parts[1].clone(), parts[2..].join("\r"))),
+            "LLEN" if len > 1 => Some(AppCommand::LLen(parts[1].clone())),
+            "LPOP" if len > 2 => Some(AppCommand::LPOP(
                 parts[1].clone(),
                 parts[2].parse().unwrap_or(1),
             )),
-            "LPOP" if parts.len() > 1 => Some(AppCommand::LPOP(parts[1].clone(), 1)),
-            "BLPOP" if parts.len() > 1 => Some(AppCommand::BLPOP(parts[1].clone())),
+            "LPOP" if len > 1 => Some(AppCommand::LPOP(parts[1].clone(), 1)),
+            "BLPOP" if len > 2 => {
+                let timeout_str: Result<i32, _> = parts[len - 1].parse();
+
+                if !timeout_str.is_ok() {
+                    return None;
+                } else {
+                    let keys = parts[1..len - 1].to_vec();
+                    Some(AppCommand::BLPOP(keys.join("\r"), timeout_str.unwrap()))
+                }
+            }
             _ => None,
         }
     }
