@@ -178,6 +178,8 @@ impl Engine for HashMapEngine {
                 };
 
                 let start_range = Excluded(start_index);
+
+                println!("Start range: {:?}", start_range);
                 for (id, value) in stream.range((start_range, Unbounded)) {
                     results.push((id.clone(), value.clone()));
                 }
@@ -529,7 +531,9 @@ impl AppCommand {
                             })
                             .collect();
 
-                        per_stream.push((key.clone(), results_vec));
+                        if !results_vec.is_empty() {
+                            per_stream.push((key.clone(), results_vec));
+                        }
 
                         if handled_keys.len() == keys.len() {
                             break;
@@ -626,7 +630,7 @@ impl AppCommand {
             }
             "XREAD" if len > 3 => {
                 let type_xread = parts[1].to_uppercase();
-                if type_xread == "STREAM" {
+                if type_xread == "STREAMS" {
                     let after_streams = &parts[2..];
 
                     if after_streams.len() % 2 != 0 {
