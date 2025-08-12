@@ -8,6 +8,7 @@ use std::{
 use std::{io, u64};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 use tokio::sync::RwLock;
+use tokio::time::Instant;
 
 #[derive(PartialEq)]
 pub enum AppCommand {
@@ -499,18 +500,17 @@ impl AppCommand {
             }
             AppCommand::XRead(duration, keys, ids) => {
                 let mut per_stream: Vec<(String, Vec<(String, Vec<String>)>)> = Vec::new();
+
                 let keys: Vec<String> = keys.split('\r').map(|s| s.to_string()).collect();
                 let ids: Vec<String> = ids.split('\r').map(|s| s.to_string()).collect();
 
-                // Sleep with tokio to duration (ms)
-                if *duration > 0 {
-                    tokio::time::sleep(Duration::from_millis(*duration as u64)).await;
-                }
                 let engine: tokio::sync::RwLockReadGuard<'_, T> = writter.read().await;
 
                 let mut handled_keys: HashSet<String> = HashSet::new();
 
-                'mainloop: for i in 0..2 {
+                let timeout = Duration::from_millis(*duration as u64);
+                let start_time = Instant::now();
+                loop {
                     for (key, id) in keys.iter().zip(ids.iter()) {
                         if !engine.stream_exists(key) || handled_keys.contains(key) {
                             continue;
@@ -536,15 +536,19 @@ impl AppCommand {
                         }
 
                         if handled_keys.len() == keys.len() {
-                            break 'mainloop;
+                            break;
                         }
                     }
 
-                    if *duration > 0 && i == 0 {
-                        tokio::time::sleep(Duration::from_millis(*duration as u64)).await;
-                    } else {
-                        break 'mainloop;
+                    if !per_stream.is_empty() || handled_keys.len() == keys.len() {
+                        break;
                     }
+
+                    if *duration > 0 && start_time.elapsed() >= timeout {
+                        break;
+                    }
+
+                    tokio::time::sleep(Duration::from_millis(*duration as u64)).await;
                 }
 
                 return RespFormatter::format_xread(&per_stream);
