@@ -263,11 +263,6 @@ impl AppCommand {
                 let mut result: Vec<String> = Vec::new();
                 let ms_duration = generate_duration_f(*seconds * 1000_f32);
 
-                println!(
-                    "[BLPOP] waiting for keys: {:?} and duration is {}",
-                    list_key, ms_duration
-                );
-
                 loop {
                     let mut engine = writter.write().await;
                     list_key.retain(|key| {
