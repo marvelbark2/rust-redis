@@ -273,10 +273,11 @@ impl AppCommand {
                 Some(AppCommand::LPush(parts[1].clone(), parts[2..].join("\r")))
             }
             "LLEN" if parts.len() > 1 => Some(AppCommand::LLen(parts[1].clone())),
-            "LPOP" if parts.len() > 1 => Some(AppCommand::LPOP(
+            "LPOP" if parts.len() > 2 => Some(AppCommand::LPOP(
                 parts[1].clone(),
                 parts[2].parse().unwrap_or(1),
             )),
+            "LPOP" if parts.len() > 1 => Some(AppCommand::LPOP(parts[1].clone(), 1)),
             _ => None,
         }
     }
