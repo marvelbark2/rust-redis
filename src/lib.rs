@@ -538,12 +538,12 @@ impl AppCommand {
                         if handled_keys.len() == keys.len() {
                             break;
                         }
+                    }
 
-                        if *duration > 0 || i == 0 {
-                            tokio::time::sleep(Duration::from_millis(*duration as u64)).await;
-                        } else {
-                            break;
-                        }
+                    if *duration > 0 && i == 0 {
+                        tokio::time::sleep(Duration::from_millis(*duration as u64)).await;
+                    } else {
+                        break;
                     }
                 }
 
