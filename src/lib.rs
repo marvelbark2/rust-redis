@@ -499,7 +499,24 @@ impl AppCommand {
             }
             AppCommand::XRead(duration, keys, ids) => {
                 let keys: Vec<String> = keys.split('\r').map(|s| s.to_string()).collect();
-                let ids: Vec<String> = ids.split('\r').map(|s| s.to_string()).collect();
+
+                let engine: tokio::sync::RwLockReadGuard<'_, T> = writter.read().await;
+
+                let ids: Vec<String> = ids
+                    .split('\r')
+                    .enumerate()
+                    .map(|(i, s)| {
+                        if s == "$" {
+                            let last_id = engine.stream_last_id(&keys[i]);
+                            if let Some(last_id) = last_id {
+                                return last_id;
+                            }
+                            return "".to_string();
+                        } else {
+                            return s.to_string();
+                        }
+                    })
+                    .collect();
 
                 let check_streams = |engine: &T| -> Vec<(String, Vec<(String, Vec<String>)>)> {
                     let mut per_stream: Vec<(String, Vec<(String, Vec<String>)>)> = Vec::new();
@@ -540,72 +557,16 @@ impl AppCommand {
                 }
 
                 if *duration == 0 {
-                    let all_ids_are_dollar = ids.iter().all(|id| id == "$");
+                    loop {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
 
-                    if all_ids_are_dollar {
-                        let mut last_ids: HashMap<String, Option<String>> = {
+                        let results = {
                             let engine = writter.read().await;
-                            keys.iter()
-                                .map(|key| (key.clone(), engine.stream_last_id(key)))
-                                .collect()
+                            check_streams(&*engine)
                         };
 
-                        loop {
-                            tokio::time::sleep(Duration::from_millis(10)).await;
-
-                            let mut has_new_data = false;
-                            {
-                                let engine = writter.read().await;
-                                for key in &keys {
-                                    let current_last_id = engine.stream_last_id(key);
-                                    let previous_last_id = last_ids.get(key).unwrap();
-
-                                    if current_last_id != *previous_last_id {
-                                        if let (Some(current), Some(previous)) =
-                                            (&current_last_id, previous_last_id)
-                                        {
-                                            if current > previous {
-                                                has_new_data = true;
-                                                break;
-                                            }
-                                        } else if current_last_id.is_some()
-                                            && previous_last_id.is_none()
-                                        {
-                                            has_new_data = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if has_new_data {
-                                let results = {
-                                    let engine = writter.read().await;
-                                    check_streams(&*engine)
-                                };
-
-                                if !results.is_empty() {
-                                    return RespFormatter::format_xread(&results);
-                                }
-
-                                let engine = writter.read().await;
-                                for key in &keys {
-                                    last_ids.insert(key.clone(), engine.stream_last_id(key));
-                                }
-                            }
-                        }
-                    } else {
-                        loop {
-                            tokio::time::sleep(Duration::from_millis(10)).await;
-
-                            let results = {
-                                let engine = writter.read().await;
-                                check_streams(&*engine)
-                            };
-
-                            if !results.is_empty() {
-                                return RespFormatter::format_xread(&results);
-                            }
+                        if !results.is_empty() {
+                            return RespFormatter::format_xread(&results);
                         }
                     }
                 } else {
