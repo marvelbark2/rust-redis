@@ -158,16 +158,23 @@ impl Engine for HashMapEngine {
                 }
                 return results;
             } else if start == "-" {
-                let end = format!("{}-{}", end, u64::MAX);
+                let end_index = if end.contains('-') {
+                    end.clone()
+                } else {
+                    format!("{}-{}", end, u64::MAX)
+                };
 
-                for (id, value) in stream.range(..=end) {
+                for (id, value) in stream.range(..=end_index) {
                     results.push((id.clone(), value.clone()));
                 }
                 return results;
             } else if end == "+" {
-                let start = format!("{}-{}", end, u64::MIN);
-
-                for (id, value) in stream.range(start..) {
+                let start_index = if !start.contains('-') {
+                    format!("{}-{}", start, u64::MIN)
+                } else {
+                    start.clone()
+                };
+                for (id, value) in stream.range(start_index..) {
                     results.push((id.clone(), value.clone()));
                 }
                 return results;
