@@ -18,6 +18,7 @@ pub enum AppCommand {
     LRANGE(String, i32, i32),
     LPush(String, String),
     LLen(String),
+    LPOP(String),
 }
 
 pub trait Engine {
@@ -30,12 +31,14 @@ pub trait Engine {
     fn list_push_right_many(&mut self, key: String, values: Vec<String>) -> usize;
     fn list_range(&self, key: &str, start: i32, end: i32) -> Vec<String>;
     fn list_count(&self, key: &str) -> usize;
+    fn list_pop_left(&mut self, key: &str) -> Option<String>;
 }
 #[derive(Debug, Clone)]
 pub struct HashMapEngine {
     pub hash_map: HashMap<String, String>,
     pub list_map: HashMap<String, VecDeque<String>>,
 }
+
 impl Engine for HashMapEngine {
     fn get(&self, key: &str) -> Option<&String> {
         self.hash_map.get(key)
@@ -99,6 +102,13 @@ impl Engine for HashMapEngine {
             list.push_back(value);
         }
         list.len()
+    }
+    fn list_pop_left(&mut self, key: &str) -> Option<String> {
+        if let Some(list) = self.list_map.get_mut(key) {
+            list.pop_front()
+        } else {
+            None
+        }
     }
 }
 
@@ -197,6 +207,15 @@ impl AppCommand {
                 let count = engine.list_count(&list_key);
                 return RespFormatter::format_integer(count);
             }
+            AppCommand::LPOP(key) => {
+                let mut engine = writter.write().unwrap();
+                let list_key = format!("{}_list", key);
+                if let Some(value) = engine.list_pop_left(&list_key) {
+                    return RespFormatter::format_bulk_string(&value);
+                } else {
+                    return RespFormatter::format_bulk_string("");
+                }
+            }
         }
     }
 
@@ -240,10 +259,10 @@ impl AppCommand {
                 Some(AppCommand::LRANGE(key, start_index, end_index))
             }
             "LPUSH" if parts.len() > 2 => {
-                let all_items = parts[2..].join("\r");
-                Some(AppCommand::LPush(parts[1].clone(), all_items))
+                Some(AppCommand::LPush(parts[1].clone(), parts[2..].join("\r")))
             }
             "LLEN" if parts.len() > 1 => Some(AppCommand::LLen(parts[1].clone())),
+            "LPOP" if parts.len() > 1 => Some(AppCommand::LPOP(parts[1].clone())),
             _ => None,
         }
     }
@@ -339,6 +358,15 @@ impl RespFormatter {
     pub fn format_bulk_string(value: &str) -> String {
         if value.is_empty() {
             return String::from("$-1\r\n");
+        }
+
+        // remove double quotes if they exist like "one" -> one but not "one -> one
+        if value.starts_with('"') && value.ends_with('"') {
+            return format!(
+                "${}\r\n{}\r\n",
+                value.len() - 2,
+                value[1..value.len() - 1].to_string()
+            );
         }
         format!("${}\r\n{}\r\n", value.len(), value)
     }
