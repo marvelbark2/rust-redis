@@ -45,7 +45,6 @@ pub trait Engine {
     fn stream_id_exists(&self, key: &str, id: &str) -> bool;
     fn stream_last_id(&self, key: &str) -> Option<String>;
     fn stream_search_range(&self, key: &str, start: String, end: String) -> Vec<(String, String)>;
-    fn stream_get_data(&self, key: &str, id: &str) -> Option<String>;
 }
 #[derive(Debug, Clone)]
 pub struct HashMapEngine {
@@ -188,14 +187,6 @@ impl Engine for HashMapEngine {
             }
         } else {
             return Vec::new(); // Return empty if the stream does not exist
-        }
-    }
-
-    fn stream_get_data(&self, key: &str, id: &str) -> Option<String> {
-        if let Some(stream) = self.stream_map.get(key) {
-            stream.get(id).cloned()
-        } else {
-            None
         }
     }
 }
