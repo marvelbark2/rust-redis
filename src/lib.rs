@@ -318,69 +318,74 @@ impl AppCommand {
             AppCommand::XAdd(key, id, values) => {
                 let mut engine = writter.write().await;
 
-                let id_parts = id.split('-').collect::<Vec<&str>>();
-                if id_parts.len() != 2 {
-                    return RespFormatter::format_error("Invalid ID format");
-                }
-
-                let ms = id_parts[0].parse::<u64>().map_err(|_| "Invalid ms");
-
                 let mut id_str = String::from(id);
 
-                if id_parts[1] == "*" {
-                    if ms.is_err() {
-                        return RespFormatter::format_error("Invalid ID format");
-                    }
-
-                    let ms = ms.unwrap();
-                    let last_id = engine.stream_last_id(key);
-                    let seq = if let Some(last_id) = last_id {
-                        let last_parts = last_id.split('-').collect::<Vec<&str>>();
-                        if last_parts.len() != 2 {
-                            return RespFormatter::format_error("Invalid last ID format");
-                        }
-
-                        if last_parts[0] != id_parts[0] && id_parts[0] == "0" {
-                            1
-                        } else if last_parts[0] != id_parts[0] {
-                            0
-                        } else {
-                            let last_seq = last_parts[1].parse::<u64>().unwrap_or(0);
-                            last_seq + 1
-                        }
-                    } else if id_parts[0] == "0" {
-                        1
-                    } else {
-                        0
-                    };
-
-                    id_str = format!("{}-{}", ms, seq);
+                if id_str == "*" {
+                    let unix = generate_duration_f(0.0001_f32);
+                    id_str = format!("{}-0", unix);
                 } else {
-                    let seq = id_parts[1].parse::<u64>().map_err(|_| "Invalid seq");
-
-                    if ms.is_err() || seq.is_err() {
+                    let id_parts = id.split('-').collect::<Vec<&str>>();
+                    if id_parts.len() != 2 {
                         return RespFormatter::format_error("Invalid ID format");
                     }
 
-                    if ms.unwrap() == 0 && seq.unwrap() == 0 {
-                        return RespFormatter::format_error(
-                            "The ID specified in XADD must be greater than 0-0",
-                        );
-                    }
+                    let ms = id_parts[0].parse::<u64>().map_err(|_| "Invalid ms");
 
-                    //  &id.to_string() > first_id
-                    let last_id = engine.stream_last_id(key);
-                    if let Some(first_id) = last_id {
-                        println!(
-                            "first id: {}, id: {}, id_exists: {}",
-                            first_id,
-                            id_str,
-                            engine.stream_id_exists(key, &id_str)
-                        );
-                        if id < &first_id || engine.stream_id_exists(key, id) {
+                    if id_parts[1] == "*" {
+                        if ms.is_err() {
+                            return RespFormatter::format_error("Invalid ID format");
+                        }
+
+                        let ms = ms.unwrap();
+                        let last_id = engine.stream_last_id(key);
+                        let seq = if let Some(last_id) = last_id {
+                            let last_parts = last_id.split('-').collect::<Vec<&str>>();
+                            if last_parts.len() != 2 {
+                                return RespFormatter::format_error("Invalid last ID format");
+                            }
+
+                            if last_parts[0] != id_parts[0] && id_parts[0] == "0" {
+                                1
+                            } else if last_parts[0] != id_parts[0] {
+                                0
+                            } else {
+                                let last_seq = last_parts[1].parse::<u64>().unwrap_or(0);
+                                last_seq + 1
+                            }
+                        } else if id_parts[0] == "0" {
+                            1
+                        } else {
+                            0
+                        };
+
+                        id_str = format!("{}-{}", ms, seq);
+                    } else {
+                        let seq = id_parts[1].parse::<u64>().map_err(|_| "Invalid seq");
+
+                        if ms.is_err() || seq.is_err() {
+                            return RespFormatter::format_error("Invalid ID format");
+                        }
+
+                        if ms.unwrap() == 0 && seq.unwrap() == 0 {
                             return RespFormatter::format_error(
+                                "The ID specified in XADD must be greater than 0-0",
+                            );
+                        }
+
+                        //  &id.to_string() > first_id
+                        let last_id = engine.stream_last_id(key);
+                        if let Some(first_id) = last_id {
+                            println!(
+                                "first id: {}, id: {}, id_exists: {}",
+                                first_id,
+                                id_str,
+                                engine.stream_id_exists(key, &id_str)
+                            );
+                            if id < &first_id || engine.stream_id_exists(key, id) {
+                                return RespFormatter::format_error(
                             "The ID specified in XADD is equal or smaller than the target stream top item",
                         );
+                            }
                         }
                     }
                 }
