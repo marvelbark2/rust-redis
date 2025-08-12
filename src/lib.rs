@@ -17,6 +17,7 @@ pub enum AppCommand {
     RPush(String, String),
     LRANGE(String, i32, i32),
     LPush(String, String),
+    LLen(String),
 }
 
 pub trait Engine {
@@ -190,6 +191,12 @@ impl AppCommand {
                 let count = engine.list_push_left_many(list_key, reversed_values);
                 return RespFormatter::format_integer(count);
             }
+            AppCommand::LLen(key) => {
+                let engine = writter.read().unwrap();
+                let list_key = format!("{}_list", key);
+                let count = engine.list_count(&list_key);
+                return RespFormatter::format_integer(count);
+            }
         }
     }
 
@@ -236,6 +243,7 @@ impl AppCommand {
                 let all_items = parts[2..].join("\r");
                 Some(AppCommand::LPush(parts[1].clone(), all_items))
             }
+            "LLEN" if parts.len() > 1 => Some(AppCommand::LLen(parts[1].clone())),
             _ => None,
         }
     }
