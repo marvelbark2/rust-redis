@@ -510,7 +510,7 @@ impl AppCommand {
 
                 let mut handled_keys: HashSet<String> = HashSet::new();
 
-                for i in 0..2 {
+                'mainloop: for i in 0..2 {
                     for (key, id) in keys.iter().zip(ids.iter()) {
                         if !engine.stream_exists(key) || handled_keys.contains(key) {
                             continue;
@@ -536,14 +536,14 @@ impl AppCommand {
                         }
 
                         if handled_keys.len() == keys.len() {
-                            break;
+                            break 'mainloop;
                         }
                     }
 
                     if *duration > 0 && i == 0 {
                         tokio::time::sleep(Duration::from_millis(*duration as u64)).await;
                     } else {
-                        break;
+                        break 'mainloop;
                     }
                 }
 
