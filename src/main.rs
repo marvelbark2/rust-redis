@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -15,11 +15,15 @@ async fn main() -> std::io::Result<()> {
         stream_map: HashMap::new(),
     }));
 
+    let lock_set: HashSet<String> = HashSet::new();
+    let lock_mutex = Arc::new(RwLock::new(lock_set));
+
     loop {
         let (stream, _) = listener.accept().await?;
         let engine_mutex_clone = Arc::clone(&engine_mutex);
+        let lock_mutex_clone = Arc::clone(&lock_mutex);
         tokio::spawn(async move {
-            if let Err(e) = handle_stream(stream, engine_mutex_clone).await {
+            if let Err(e) = handle_stream(stream, engine_mutex_clone, lock_mutex_clone).await {
                 eprintln!("Error handling stream: {}", e);
             }
         });
@@ -29,6 +33,7 @@ async fn main() -> std::io::Result<()> {
 async fn handle_stream<T: Engine + Send + Sync + 'static>(
     stream: TcpStream,
     engine: Arc<RwLock<T>>,
+    lock_mutex: Arc<RwLock<HashSet<String>>>,
 ) -> std::io::Result<()> {
     // Split the stream so reads and writes can proceed independently.
     let (read_half, mut write_half) = stream.into_split();
@@ -52,7 +57,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
 
         match AppCommand::from_parts_simple(cmd_parts) {
             Some(cmd) => {
-                let response = cmd.compute(&engine); // see note below
+                let response = cmd.compute(&engine, &lock_mutex); // see note below
                 write_half.write_all(response.await.as_bytes()).await?;
                 write_half.flush().await?;
             }

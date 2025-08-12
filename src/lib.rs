@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
@@ -217,7 +217,11 @@ fn is_expired(time: String) -> bool {
 }
 
 impl AppCommand {
-    pub async fn compute<T: Engine>(&self, writter: &Arc<RwLock<T>>) -> String {
+    pub async fn compute<T: Engine>(
+        &self,
+        writter: &Arc<RwLock<T>>,
+        lock: &Arc<RwLock<HashSet<String>>>,
+    ) -> String {
         match self {
             AppCommand::Ping => String::from("+PONG\r\n"),
             AppCommand::Echo(msg) => format!("+{}\r\n", msg),
@@ -317,12 +321,35 @@ impl AppCommand {
                 let ms_duration = generate_duration_f(*seconds * 1000_f32);
 
                 loop {
+                    let mut writter: tokio::sync::RwLockWriteGuard<'_, HashSet<String>> =
+                        lock.write().await;
+                    let mut locked = false;
+                    for key in &list_key {
+                        if writter.contains(key) {
+                            locked = true;
+                            break;
+                        } else {
+                            writter.insert(key.clone());
+                        }
+                    }
+
+                    if !locked {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                loop {
                     let mut engine = writter.write().await;
+                    let mut writter: tokio::sync::RwLockWriteGuard<'_, HashSet<String>> =
+                        lock.write().await;
+
                     list_key.retain(|key| {
                         let key_list = format!("{}_list", key);
                         if let Some(value) = engine.list_pop_left(&key_list) {
                             result.push(key.clone());
                             result.push(value);
+
+                            writter.remove(key);
                             false
                         } else {
                             true
