@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
-use std::io;
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use std::{io, u64};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 use tokio::sync::RwLock;
 
@@ -149,14 +149,36 @@ impl Engine for HashMapEngine {
     }
 
     fn stream_search_range(&self, key: &str, start: String, end: String) -> Vec<(String, String)> {
-        let mut results = Vec::new();
         if let Some(stream) = self.stream_map.get(key) {
-            for (id, value) in stream.range(start..=end) {
-                results.push((id.clone(), value.clone()));
+            let mut results = Vec::new();
+
+            if start == "-" && end == "+" {
+                for (id, value) in stream.iter() {
+                    results.push((id.clone(), value.clone()));
+                }
+                return results;
+            } else if start == "-" {
+                let end = format!("{}-{}", end, u64::MAX);
+
+                for (id, value) in stream.range(..=end) {
+                    results.push((id.clone(), value.clone()));
+                }
+                return results;
+            } else if end == "+" {
+                let start = format!("{}-{}", end, u64::MIN);
+
+                for (id, value) in stream.range(start..) {
+                    results.push((id.clone(), value.clone()));
+                }
+                return results;
+            } else {
+                for (id, value) in stream.range(start..=end) {
+                    results.push((id.clone(), value.clone()));
+                }
+                return results;
             }
-            return results;
         } else {
-            return results; // Return empty if the stream does not exist
+            return Vec::new(); // Return empty if the stream does not exist
         }
     }
 }
