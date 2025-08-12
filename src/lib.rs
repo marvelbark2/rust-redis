@@ -518,10 +518,6 @@ impl AppCommand {
                         )],
                     ));
                 }
-
-                if per_stream.is_empty() {
-                    return String::from("$-1\r\n");
-                }
                 RespFormatter::format_xread(&per_stream)
             }
         }
@@ -753,7 +749,7 @@ impl RespFormatter {
 
     pub fn format_xread(streams: &[(String, Vec<(String, Vec<String>)>)]) -> String {
         if streams.is_empty() {
-            return String::from("*-1\r\n");
+            return String::from("$-1\r\n");
         }
 
         let mut out = String::new();
