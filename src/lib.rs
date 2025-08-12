@@ -19,6 +19,7 @@ pub enum AppCommand {
     LPush(String, String),
     LLen(String),
     LPOP(String, i32),
+    BLPOP(String),
 }
 
 pub trait Engine {
@@ -227,6 +228,16 @@ impl AppCommand {
                     return RespFormatter::format_bulk_string("");
                 }
             }
+            AppCommand::BLPOP(key) => {
+                let list_key = format!("{}_list", key);
+
+                loop {
+                    let mut engine = writter.write().unwrap();
+                    if let Some(value) = engine.list_pop_left(&list_key) {
+                        return RespFormatter::format_bulk_string(&value);
+                    }
+                }
+            }
         }
     }
 
@@ -278,6 +289,7 @@ impl AppCommand {
                 parts[2].parse().unwrap_or(1),
             )),
             "LPOP" if parts.len() > 1 => Some(AppCommand::LPOP(parts[1].clone(), 1)),
+            "BLPOP" if parts.len() > 1 => Some(AppCommand::BLPOP(parts[1].clone())),
             _ => None,
         }
     }
