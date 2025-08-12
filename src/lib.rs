@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
+use std::ops::Bound::{Excluded, Unbounded};
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
@@ -166,6 +167,18 @@ impl Engine for HashMapEngine {
                 };
 
                 for (id, value) in stream.range(..=end_index) {
+                    results.push((id.clone(), value.clone()));
+                }
+                return results;
+            } else if end == "++" {
+                let start_index = if !start.contains('-') {
+                    format!("{}-{}", start, u64::MIN)
+                } else {
+                    start.clone()
+                };
+
+                let start_range = Excluded(start_index);
+                for (id, value) in stream.range((start_range, Unbounded)) {
                     results.push((id.clone(), value.clone()));
                 }
                 return results;
@@ -501,7 +514,7 @@ impl AppCommand {
                             continue;
                         }
 
-                        let data = engine.stream_search_range(key, id.clone(), "+".to_string());
+                        let data = engine.stream_search_range(key, id.clone(), "++".to_string());
 
                         if !data.is_empty() {
                             handled_keys.insert(key.clone());
