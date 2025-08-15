@@ -63,7 +63,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                     let response = cmd.compute(&engine, &lock_mutex, &mut multi_cmd); // see note below
                     write_half.write_all(response.await.as_bytes()).await?;
                 } else {
-                    write_half.write_all(b"+QUEUED").await?;
+                    write_half.write_all(b"+QUEUED\r\n").await?;
                 }
                 write_half.flush().await?;
             }

@@ -729,6 +729,7 @@ impl AppCommand {
                 }
             }
             "INCR" if len > 1 => Some(AppCommand::INCR(parts[1].clone())),
+            "MULTI" => Some(AppCommand::MULTI),
             _ => None,
         }
     }
