@@ -9,25 +9,7 @@ use std::{io, u64};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 use tokio::sync::RwLock;
 
-pub struct AppCommandMulti {
-    pub command: AppCommand,
-    pub args: Vec<String>,
-}
-
-impl AppCommandMulti {
-    pub fn new(command: AppCommand, args: Vec<String>) -> Self {
-        Self { command, args }
-    }
-
-    pub fn new_cmd(command: AppCommand) -> Self {
-        Self {
-            command,
-            args: Vec::new(),
-        }
-    }
-}
-
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum AppCommand {
     Ping,
     Echo(String),
@@ -47,7 +29,7 @@ pub enum AppCommand {
     XRange(String, String, String),
     XRead(i32, String, String),
     INCR(String),
-    MULTI,
+    None,
 }
 
 pub trait Engine {
@@ -263,7 +245,6 @@ impl AppCommand {
         &self,
         writter: &Arc<RwLock<T>>,
         lock: &Arc<RwLock<HashSet<String>>>,
-        multi_cmd: &mut Vec<AppCommandMulti>,
     ) -> String {
         match self {
             AppCommand::Ping => String::from("+PONG\r\n"),
@@ -614,12 +595,7 @@ impl AppCommand {
                 engine.set(key.clone(), new_value.to_string());
                 return RespFormatter::format_integer(new_value as usize);
             }
-            AppCommand::MULTI => {
-                // MULTI command is not implemented in this example.
-                // In a real application, you would handle transactions here.
-                multi_cmd.push(AppCommandMulti::new_cmd(AppCommand::MULTI));
-                return String::from("+OK\r\n");
-            }
+            AppCommand::None => String::from("-ERR Unknown command\r\n"),
         }
     }
 
@@ -729,7 +705,6 @@ impl AppCommand {
                 }
             }
             "INCR" if len > 1 => Some(AppCommand::INCR(parts[1].clone())),
-            "MULTI" => Some(AppCommand::MULTI),
             _ => None,
         }
     }
@@ -842,6 +817,14 @@ impl RespFormatter {
                 value[1..value.len() - 1].to_string()
             );
         }
+
+        // REmove extra  \r\n if ended with \r\n
+        let value = if value.ends_with("\r\n") {
+            &value[..value.len() - 2]
+        } else {
+            value
+        };
+
         format!("${}\r\n{}\r\n", value.len(), value)
     }
     pub fn format_array(values: &[String]) -> String {
@@ -849,6 +832,19 @@ impl RespFormatter {
         result.push_str(&format!("*{}\r\n", values.len()));
         for value in values {
             result.push_str(&RespFormatter::format_bulk_string(value));
+        }
+        result
+    }
+
+    // values are already parsed
+    pub fn format_array_result(values: &[String]) -> String {
+        if values.is_empty() {
+            return String::from("*0\r\n");
+        }
+        let mut result = String::new();
+        result.push_str(&format!("*{}\r\n", values.len()));
+        for value in values {
+            result.push_str(value);
         }
         result
     }

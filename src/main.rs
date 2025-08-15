@@ -4,7 +4,7 @@ use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 
-use codecrafters_redis::{AppCommand, AppCommandMulti, AppCommandParser, Engine, HashMapEngine};
+use codecrafters_redis::{AppCommand, AppCommandParser, Engine, HashMapEngine, RespFormatter};
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:6379").await?;
@@ -39,7 +39,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
 
-    let mut multi_cmd: Vec<AppCommandMulti> = Vec::new();
+    let mut multi_cmd: Vec<AppCommand> = Vec::new();
 
     loop {
         let cmd_parts = match AppCommandParser::new()
@@ -57,18 +57,46 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
             continue;
         }
 
+        let first_cmd = cmd_parts[0].clone().to_uppercase();
+
         match AppCommand::from_parts_simple(cmd_parts) {
             Some(cmd) => {
                 if multi_cmd.len() == 0 {
-                    let response = cmd.compute(&engine, &lock_mutex, &mut multi_cmd); // see note below
+                    let response = cmd.compute(&engine, &lock_mutex); // see note below
                     write_half.write_all(response.await.as_bytes()).await?;
                 } else {
+                    multi_cmd.push(cmd);
                     write_half.write_all(b"+QUEUED\r\n").await?;
                 }
                 write_half.flush().await?;
             }
             None => {
-                write_half.write_all(b"-ERR unknown command\r\n").await?;
+                if first_cmd == "MULTI" {
+                    multi_cmd.push(AppCommand::None);
+                    write_half.write_all(b"+OK\r\n").await?;
+                } else if first_cmd == "DISCARD" {
+                    multi_cmd.clear();
+                    write_half.write_all(b"+OK\r\n").await?;
+                } else if first_cmd == "EXEC" {
+                    if multi_cmd.is_empty() {
+                        write_half.write_all(b"-ERR EXEC without MULTI\r\n").await?;
+                    } else {
+                        let mut responses = Vec::new();
+                        println!("Executing MULTI commands: {:?}", multi_cmd);
+                        for cmd_item in multi_cmd.drain(1..) {
+                            let response = cmd_item.compute(&engine, &lock_mutex).await;
+                            responses.push(response);
+                        }
+                        write_half
+                            .write_all(RespFormatter::format_array_result(&responses).as_bytes())
+                            .await?;
+
+                        multi_cmd.clear();
+                    }
+                    write_half.flush().await?;
+                } else {
+                    write_half.write_all(b"-ERR unknown command\r\n").await?;
+                }
                 write_half.flush().await?;
             }
         }
