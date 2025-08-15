@@ -28,6 +28,7 @@ pub enum AppCommand {
     XAdd(String, String, String),
     XRange(String, String, String),
     XRead(i32, String, String),
+    INCR(String),
 }
 
 pub trait Engine {
@@ -581,6 +582,13 @@ impl AppCommand {
                     return RespFormatter::format_xread(&final_results);
                 }
             }
+            AppCommand::INCR(key) => {
+                let mut engine = writter.write().await;
+                let value = engine.get(key).cloned().unwrap_or_else(|| "0".to_string());
+                let new_value: i64 = value.parse().unwrap_or(0) + 1;
+                engine.set(key.clone(), new_value.to_string());
+                return RespFormatter::format_integer(new_value as usize);
+            }
         }
     }
 
@@ -689,6 +697,7 @@ impl AppCommand {
                     Some(AppCommand::XRead(duration, keys, ids))
                 }
             }
+            "INCR" if len > 1 => Some(AppCommand::INCR(parts[1].clone())),
             _ => None,
         }
     }
