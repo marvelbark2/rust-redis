@@ -387,6 +387,8 @@ impl AppCommand {
                         } else {
                             return RespFormatter::format_array(&result);
                         }
+                    } else if seconds == &(0_f32) {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
                     }
                 }
             }
