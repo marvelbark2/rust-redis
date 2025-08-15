@@ -586,7 +586,11 @@ impl AppCommand {
             AppCommand::INCR(key) => {
                 let mut engine = writter.write().await;
                 let value = engine.get(key).cloned().unwrap_or_else(|| "0".to_string());
-                let new_value: i64 = value.parse().unwrap_or(0) + 1;
+                let maybe_value = value.parse();
+                if maybe_value.is_err() {
+                    return RespFormatter::format_error("value is not an integer or out of range");
+                }
+                let new_value: i64 = maybe_value.unwrap_or(0) + 1;
                 engine.set(key.clone(), new_value.to_string());
                 return RespFormatter::format_integer(new_value as usize);
             }
