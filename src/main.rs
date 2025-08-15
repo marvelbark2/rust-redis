@@ -5,9 +5,14 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 
 use codecrafters_redis::{AppCommand, AppCommandParser, Engine, HashMapEngine, RespFormatter};
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:6379").await?;
+    let port = std::env::args().nth(1).expect("6379");
+
+    let address = format!("127.0.0.1:{}", port);
+
+    let listener = TcpListener::bind(address).await?;
 
     let engine_mutex = Arc::new(RwLock::new(HashMapEngine {
         hash_map: HashMap::new(),
