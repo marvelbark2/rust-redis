@@ -9,6 +9,24 @@ use std::{io, u64};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 use tokio::sync::RwLock;
 
+pub struct AppCommandMulti {
+    pub command: AppCommand,
+    pub args: Vec<String>,
+}
+
+impl AppCommandMulti {
+    pub fn new(command: AppCommand, args: Vec<String>) -> Self {
+        Self { command, args }
+    }
+
+    pub fn new_cmd(command: AppCommand) -> Self {
+        Self {
+            command,
+            args: Vec::new(),
+        }
+    }
+}
+
 #[derive(PartialEq)]
 pub enum AppCommand {
     Ping,
@@ -29,6 +47,7 @@ pub enum AppCommand {
     XRange(String, String, String),
     XRead(i32, String, String),
     INCR(String),
+    MULTI,
 }
 
 pub trait Engine {
@@ -244,6 +263,7 @@ impl AppCommand {
         &self,
         writter: &Arc<RwLock<T>>,
         lock: &Arc<RwLock<HashSet<String>>>,
+        multi_cmd: &mut Vec<AppCommandMulti>,
     ) -> String {
         match self {
             AppCommand::Ping => String::from("+PONG\r\n"),
@@ -593,6 +613,12 @@ impl AppCommand {
                 let new_value: i64 = maybe_value.unwrap_or(0) + 1;
                 engine.set(key.clone(), new_value.to_string());
                 return RespFormatter::format_integer(new_value as usize);
+            }
+            AppCommand::MULTI => {
+                // MULTI command is not implemented in this example.
+                // In a real application, you would handle transactions here.
+                multi_cmd.push(AppCommandMulti::new_cmd(AppCommand::MULTI));
+                return String::from("+OK\r\n");
             }
         }
     }

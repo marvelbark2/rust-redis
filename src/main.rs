@@ -4,7 +4,7 @@ use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 
-use codecrafters_redis::{AppCommand, AppCommandParser, Engine, HashMapEngine};
+use codecrafters_redis::{AppCommand, AppCommandMulti, AppCommandParser, Engine, HashMapEngine};
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:6379").await?;
@@ -39,6 +39,8 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
 
+    let mut multi_cmd: Vec<AppCommandMulti> = Vec::new();
+
     loop {
         let cmd_parts = match AppCommandParser::new()
             .parse_resp_array_async(&mut reader)
@@ -57,8 +59,12 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
 
         match AppCommand::from_parts_simple(cmd_parts) {
             Some(cmd) => {
-                let response = cmd.compute(&engine, &lock_mutex); // see note below
-                write_half.write_all(response.await.as_bytes()).await?;
+                if multi_cmd.len() == 0 {
+                    let response = cmd.compute(&engine, &lock_mutex, &mut multi_cmd); // see note below
+                    write_half.write_all(response.await.as_bytes()).await?;
+                } else {
+                    write_half.write_all(b"+QUEUED").await?;
+                }
                 write_half.flush().await?;
             }
             None => {
