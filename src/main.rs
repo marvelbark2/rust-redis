@@ -86,7 +86,6 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                         write_half.write_all(b"-ERR EXEC without MULTI\r\n").await?;
                     } else {
                         let mut responses = Vec::new();
-                        println!("Executing MULTI commands: {:?}", multi_cmd);
                         for cmd_item in multi_cmd.drain(1..) {
                             let response = cmd_item.compute(&engine, &lock_mutex).await;
                             responses.push(response);
