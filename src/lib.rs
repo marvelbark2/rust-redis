@@ -180,7 +180,6 @@ impl Engine for HashMapEngine {
 
                 let start_range = Excluded(start_index);
 
-                println!("Start range: {:?}", start_range);
                 for (id, value) in stream.range((start_range, Unbounded)) {
                     results.push((id.clone(), value.clone()));
                 }
