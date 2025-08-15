@@ -74,9 +74,13 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                 if first_cmd == "MULTI" {
                     multi_cmd.push(AppCommand::None);
                     write_half.write_all(b"+OK\r\n").await?;
-                } else if first_cmd == "DISCARD" {
+                } else if first_cmd == "DISCARD" && !multi_cmd.is_empty() {
                     multi_cmd.clear();
                     write_half.write_all(b"+OK\r\n").await?;
+                } else if first_cmd == "DISCARD" && multi_cmd.is_empty() {
+                    write_half
+                        .write_all(b"-ERR DISCARD without MULTI\r\n")
+                        .await?;
                 } else if first_cmd == "EXEC" {
                     if multi_cmd.is_empty() {
                         write_half.write_all(b"-ERR EXEC without MULTI\r\n").await?;
