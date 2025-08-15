@@ -8,9 +8,23 @@ use codecrafters_redis::{AppCommand, AppCommandParser, Engine, HashMapEngine, Re
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let port = std::env::args().nth(1).expect("6379");
+    let mut port = "6379";
+
+    let args: Vec<String> = std::env::args().collect();
+
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--port" {
+            if i + 1 < args.len() {
+                port = args[i + 1].as_str()
+            }
+        }
+        i += 1;
+    }
 
     let address = format!("127.0.0.1:{}", port);
+
+    println!("Starting server on {}", address);
 
     let listener = TcpListener::bind(address).await?;
 
