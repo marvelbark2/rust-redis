@@ -9,6 +9,13 @@ use std::{io, u64};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 use tokio::sync::RwLock;
 
+#[derive(Debug, Clone)]
+pub struct StreamPayload<T: Engine> {
+    pub writter: Arc<RwLock<T>>,
+    pub lock: Arc<RwLock<HashSet<String>>>,
+    pub replica_of: String,
+}
+
 #[derive(PartialEq, Debug)]
 pub enum AppCommand {
     Ping,
@@ -242,17 +249,12 @@ fn is_expired(time: String) -> bool {
 }
 
 impl AppCommand {
-    pub async fn compute<T: Engine>(
-        &self,
-        writter: &Arc<RwLock<T>>,
-        lock: &Arc<RwLock<HashSet<String>>>,
-        replica_of: &str,
-    ) -> String {
+    pub async fn compute<T: Engine>(&self, payload: &StreamPayload<T>) -> String {
         match self {
             AppCommand::Ping => String::from("+PONG\r\n"),
             AppCommand::Echo(msg) => format!("+{}\r\n", msg),
             AppCommand::Set(key, value, ttl) => {
-                let mut engine = writter.write().await;
+                let mut engine = payload.writter.write().await;
                 engine.set(key.to_string(), value.to_string());
                 if *ttl > 0 {
                     let duration = generate_duration(*ttl);
@@ -262,7 +264,7 @@ impl AppCommand {
                 format!("+OK\r\n")
             }
             AppCommand::Get(key) => {
-                let mut engine = writter.write().await;
+                let mut engine = payload.writter.write().await;
                 if let Some(v) = engine.get(key) {
                     let expiration_key = format!("{}_expiration", key);
                     if let Some(expiration) = engine.get(&expiration_key) {
@@ -282,7 +284,7 @@ impl AppCommand {
             AppCommand::Keys(pattern) => format!("Keys matching {} are ...", pattern),
             AppCommand::Exists(key) => format!("{} exists", key),
             AppCommand::RPush(key, value) => {
-                let mut engine = writter.write().await;
+                let mut engine = payload.writter.write().await;
                 let list_key = format!("{}_list", key);
 
                 if value.contains("\r") {
@@ -294,7 +296,7 @@ impl AppCommand {
                 return RespFormatter::format_integer(count);
             }
             AppCommand::LRANGE(key, start_index, end_index) => {
-                let engine = writter.write().await;
+                let engine = payload.writter.write().await;
                 let list_key = format!("{}_list", key);
 
                 if start_index > end_index && *end_index >= 0 && *start_index >= 0 {
@@ -309,20 +311,20 @@ impl AppCommand {
                 let reversed_values: Vec<String> =
                     values.split('\r').rev().map(|s| s.to_string()).collect();
 
-                let mut engine = writter.write().await;
+                let mut engine = payload.writter.write().await;
                 let list_key = format!("{}_list", key);
 
                 let count = engine.list_push_left_many(list_key, reversed_values);
                 return RespFormatter::format_integer(count);
             }
             AppCommand::LLen(key) => {
-                let engine = writter.read().await;
+                let engine = payload.writter.read().await;
                 let list_key = format!("{}_list", key);
                 let count = engine.list_count(&list_key);
                 return RespFormatter::format_integer(count);
             }
             AppCommand::LPOP(key, len) => {
-                let mut engine = writter.write().await;
+                let mut engine = payload.writter.write().await;
                 let list_key = format!("{}_list", key);
 
                 if len > &1 {
@@ -348,7 +350,7 @@ impl AppCommand {
 
                 loop {
                     let mut writter: tokio::sync::RwLockWriteGuard<'_, HashSet<String>> =
-                        lock.write().await;
+                        payload.lock.write().await;
                     let mut locked = false;
                     for key in &list_key {
                         if writter.contains(key) {
@@ -365,9 +367,9 @@ impl AppCommand {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
                 loop {
-                    let mut engine = writter.write().await;
+                    let mut engine = payload.writter.write().await;
                     let mut writter: tokio::sync::RwLockWriteGuard<'_, HashSet<String>> =
-                        lock.write().await;
+                        payload.lock.write().await;
 
                     list_key.retain(|key| {
                         let key_list = format!("{}_list", key);
@@ -396,7 +398,7 @@ impl AppCommand {
                 }
             }
             AppCommand::Type(key) => {
-                let engine = writter.read().await;
+                let engine = payload.writter.read().await;
                 if engine.get(key).is_some() {
                     return String::from("+string\r\n");
                 } else if engine.stream_exists(key) {
@@ -406,7 +408,7 @@ impl AppCommand {
                 }
             }
             AppCommand::XAdd(key, id, values) => {
-                let mut engine = writter.write().await;
+                let mut engine = payload.writter.write().await;
 
                 let mut id_str = String::from(id);
 
@@ -477,7 +479,7 @@ impl AppCommand {
                 return RespFormatter::format_bulk_string(&id);
             }
             AppCommand::XRange(key, min, max) => {
-                let engine = writter.read().await;
+                let engine = payload.writter.read().await;
                 if !engine.stream_exists(&key) {
                     return RespFormatter::format_array(&[]);
                 }
@@ -506,7 +508,7 @@ impl AppCommand {
                 let keys: Vec<String> = keys.split('\r').map(|s| s.to_string()).collect();
 
                 let ids: Vec<String> = {
-                    let engine = writter.read().await;
+                    let engine = payload.writter.read().await;
                     ids.split('\r')
                         .enumerate()
                         .map(|(i, s)| {
@@ -549,7 +551,7 @@ impl AppCommand {
                 };
 
                 let initial_results = {
-                    let engine = writter.read().await;
+                    let engine = payload.writter.read().await;
                     check_streams(&*engine)
                 };
 
@@ -566,7 +568,7 @@ impl AppCommand {
                         tokio::time::sleep(Duration::from_millis(10)).await;
 
                         let results = {
-                            let engine = writter.read().await;
+                            let engine = payload.writter.read().await;
                             check_streams(&*engine)
                         };
 
@@ -579,7 +581,7 @@ impl AppCommand {
                     tokio::time::sleep(timeout).await;
 
                     let final_results = {
-                        let engine = writter.read().await;
+                        let engine = payload.writter.read().await;
                         check_streams(&*engine)
                     };
 
@@ -587,7 +589,7 @@ impl AppCommand {
                 }
             }
             AppCommand::INCR(key) => {
-                let mut engine = writter.write().await;
+                let mut engine = payload.writter.write().await;
                 let value = engine.get(key).cloned().unwrap_or_else(|| "0".to_string());
                 let maybe_value = value.parse();
                 if maybe_value.is_err() {
@@ -598,7 +600,7 @@ impl AppCommand {
                 return RespFormatter::format_integer(new_value as usize);
             }
             AppCommand::INFO(_key) => {
-                let msg = if replica_of.is_empty() {
+                let msg = if payload.replica_of.is_empty() {
                     "role:master"
                 } else {
                     "role:slave"
