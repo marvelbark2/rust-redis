@@ -14,6 +14,7 @@ pub struct StreamPayload<T: Engine> {
     pub writter: Arc<RwLock<T>>,
     pub lock: Arc<RwLock<HashSet<String>>>,
     pub replica_of: String,
+    pub master_replid: String,
 }
 
 #[derive(PartialEq, Debug)]
@@ -605,7 +606,11 @@ impl AppCommand {
                 } else {
                     "role:slave"
                 };
-                return RespFormatter::format_bulk_string(msg);
+
+                // Add master_replid to the message
+                let msg = format!("{}\r\nmaster_replid:{}", msg, payload.master_replid);
+
+                return RespFormatter::format_bulk_string(msg.as_str());
             }
             AppCommand::None => String::from("-ERR Unknown command\r\n"),
         }

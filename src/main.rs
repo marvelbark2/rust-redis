@@ -1,3 +1,5 @@
+use rand::distr::Alphanumeric;
+use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::io::{AsyncWriteExt, BufReader};
@@ -31,6 +33,12 @@ async fn main() -> std::io::Result<()> {
 
     let address = format!("0.0.0.0:{}", port);
 
+    let master_replid: String = rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(40)
+        .map(char::from)
+        .collect();
+
     println!("Starting server on {}", address);
 
     let listener = TcpListener::bind(address).await?;
@@ -48,6 +56,7 @@ async fn main() -> std::io::Result<()> {
         writter: Arc::clone(&engine_mutex),
         lock: Arc::clone(&lock_mutex),
         replica_of: replica_of.clone(),
+        master_replid: master_replid.clone(),
     };
 
     loop {
