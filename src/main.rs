@@ -196,7 +196,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                         w.write_all(b"\r\n").await?;
                         w.write_all(&rdb_file).await?;
                         // Ensure we terminate the bulk string with CRLF per RESP
-                        // w.write_all(b"\r\n").await?;
+                        w.write_all(b"\r\n").await?;
                     } else {
                         w.write_all(b"$-1\r\n").await?;
                     }
