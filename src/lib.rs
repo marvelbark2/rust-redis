@@ -155,16 +155,14 @@ impl ReplicationClient {
     }
 
     pub async fn listen_for_replication<T: Engine + Send + Sync + 'static>(
-        self,
+        mut self,
         payload: StreamPayload<T>,
     ) {
         tokio::time::sleep(Duration::from_millis(200)).await;
-        let mut reader = self.reader.expect("Reader not initialized for replication");
 
         tokio::spawn(async move {
-            let mut cmd_parser = AppCommandParser::new();
             loop {
-                let cmd_parts = match cmd_parser.parse_resp_array_async(&mut reader).await {
+                let cmd_parts = match self.read_resp_array().await {
                     Ok(line) => {
                         if line.is_empty() {
                             continue;
@@ -214,12 +212,6 @@ impl ReplicationClient {
         w.write_all(buf).await
     }
 
-    pub fn into_split(self) -> (BufReader<OwnedReadHalf>, OwnedWriteHalf) {
-        (
-            self.reader.expect("Reader not initialized"),
-            self.writer.expect("Writer not initialized"),
-        )
-    }
     fn resp_array(parts: &[&[u8]]) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(format!("*{}\r\n", parts.len()).as_bytes());
@@ -229,6 +221,22 @@ impl ReplicationClient {
             out.extend_from_slice(b"\r\n");
         }
         out
+    }
+
+    async fn read_resp_array(&mut self) -> io::Result<Vec<String>> {
+        let r = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no reader"))?;
+        let mut parts = Vec::new();
+        loop {
+            let line = Self::read_resp_line(r).await?;
+            if line.is_empty() {
+                break;
+            }
+            parts.push(String::from_utf8(line).unwrap());
+        }
+        Ok(parts)
     }
 
     /// Helper: read a single RESP line (ends with CRLF). Returns the full line bytes.
