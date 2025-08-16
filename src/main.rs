@@ -219,6 +219,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
         }
 
         if payload.replica_of.is_empty() && (first_cmd == "SET") {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             if let Err(e) = payload
                 .replica_manager
                 .write()
