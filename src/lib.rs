@@ -38,6 +38,7 @@ pub enum AppCommand {
     XRead(i32, String, String),
     INCR(String),
     INFO(String),
+    REPLCONF(String, String),
     None,
 }
 
@@ -616,6 +617,13 @@ impl AppCommand {
                 return RespFormatter::format_bulk_string(msg.as_str());
             }
             AppCommand::None => String::from("-ERR Unknown command\r\n"),
+            AppCommand::REPLCONF(subcommand, value) => {
+                if subcommand == "REPLCONF" && value == "ACK" {
+                    return String::from("+OK\r\n");
+                } else {
+                    return RespFormatter::format_error("Unknown REPLCONF subcommand");
+                }
+            }
         }
     }
 
@@ -726,6 +734,7 @@ impl AppCommand {
             }
             "INCR" if len > 1 => Some(AppCommand::INCR(parts[1].clone())),
             "INFO" if len > 1 => Some(AppCommand::INFO(parts[1].clone())),
+            "REPLCONF" if len > 2 => Some(AppCommand::REPLCONF(parts[1].clone(), parts[2].clone())),
             _ => None,
         }
     }
