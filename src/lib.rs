@@ -159,9 +159,9 @@ impl ReplicationClient {
         // Status line: +FULLRESYNC <id> <offset>  OR  +CONTINUE  OR  -ERR ...
         let status_line = Self::read_resp_line(r).await?;
 
-        let rdb = self.after_psync_rdb_content().await?;
+        //        let rdb: Vec<u8> = self.after_psync_rdb_content().await?;
 
-        Ok((status_line, Some(rdb)))
+        Ok((status_line, None))
     }
 
     /// If you prefer pulling the RDB *after* PSYNC, keep this;
