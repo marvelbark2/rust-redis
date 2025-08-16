@@ -150,8 +150,31 @@ impl ReplicationClient {
 
         w.write_all(&Self::resp_array(&[b"PSYNC", runid, off_s.as_bytes()]))
             .await?;
-        Self::read_resp_line(r).await?;
-        Self::read_resp_line(r).await
+
+        // Read the status line (e.g. +FULLRESYNC <id> <offset> or -ERR ...)
+        let status_line = Self::read_resp_line(r).await?;
+
+        // Then read the next reply which may be a bulk RDB payload header ($<len>\r\n)
+        let next = Self::read_resp_line(r).await?;
+
+        if !next.is_empty() && next[0] == b'$' {
+            // parse length
+            let len_str = std::str::from_utf8(&next[1..next.len() - 2])
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid bulk length"))?;
+            let len: isize = len_str.trim().parse().map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidData, "invalid bulk length number")
+            })?;
+
+            if len >= 0 {
+                let mut buf = vec![0u8; len as usize];
+                r.read_exact(&mut buf).await?;
+                // consume trailing CRLF after bulk payload
+                let mut crlf = [0u8; 2];
+                r.read_exact(&mut crlf).await?;
+            }
+        }
+
+        Ok(status_line)
     }
 
     pub async fn listen_for_replication<T: Engine + Send + Sync + 'static>(
