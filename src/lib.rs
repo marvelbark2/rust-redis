@@ -169,7 +169,7 @@ impl ReplicationClient {
             let rdb_bytes = Self::read_resp_bulk_from_header(peek, r).await?;
             let line = Self::read_resp_line(r).await?; // consume trailing CRLF
 
-            println!("After rdb_bytes: {:?}", line);
+            println!("After rdb_bytes: {:?}", String::from_utf8_lossy(&line));
 
             rdb_bytes
         } else {
@@ -506,7 +506,7 @@ impl HashMapEngine {
         rdb.put_u8(8); // len("aof-base")
         rdb.extend_from_slice(b"aof-base");
         rdb.put_u8(0xC0);
-        rdb.put_u8(0); // integer-encoded 0
+        rdb.put_u8(0); //rdb_bytes integer-encoded 0
 
         // EOF then CRC64 footer
         rdb.put_u8(0xFF);
