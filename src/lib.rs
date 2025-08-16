@@ -214,9 +214,8 @@ impl ReplicationClient {
         mut self,
         payload: StreamPayload<T>,
     ) {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
         tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(200)).await;
             loop {
                 let cmd_parts = match self.read_resp_array().await {
                     Ok(parts) => {
