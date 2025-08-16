@@ -354,9 +354,9 @@ impl ReplicationClient {
         if n == 0 {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "EOF"));
         }
-        if line.len() < 2 || line[line.len() - 2] != b'\r' {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "missing CRLF"));
-        }
+        // if line.len() < 2 || line[line.len() - 2] != b'\r' {
+        //     return Err(io::Error::new(io::ErrorKind::InvalidData, "missing CRLF"));
+        // }
         Ok(line) // includes the type byte and CRLF
     }
 }
