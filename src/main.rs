@@ -1,6 +1,6 @@
 use rand::distr::Alphanumeric;
 use rand::Rng;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -44,11 +44,7 @@ async fn main() -> std::io::Result<()> {
 
     let listener = TcpListener::bind(address).await?;
 
-    let engine_mutex = Arc::new(RwLock::new(HashMapEngine {
-        hash_map: HashMap::new(),
-        list_map: HashMap::new(),
-        stream_map: HashMap::new(),
-    }));
+    let engine_mutex = Arc::new(RwLock::new(HashMapEngine::new()));
 
     let lock_set: HashSet<String> = HashSet::new();
     let lock_mutex = Arc::new(RwLock::new(lock_set));
@@ -64,8 +60,8 @@ async fn main() -> std::io::Result<()> {
         let mut repli_client = ReplicationClient::new(&replica_of, port);
         repli_client.connect_and_handshake().await?;
 
-        repli_client.psync(None, -1).await?;
-        // println!("PSYNC status: {}", String::from_utf8_lossy(&status));
+        let status = repli_client.psync(None, -1).await?;
+        println!("PSYNC status: {}", String::from_utf8_lossy(&status));
     }
 
     loop {
@@ -146,6 +142,26 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                         multi_cmd.clear();
                     }
                     write_half.flush().await?;
+                } else if first_cmd == "PSYNC" {
+                    let first_frag = format!(
+                        "+FULLRESYNC {} {}\r\n",
+                        "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", 0
+                    );
+
+                    write_half.write_all(first_frag.as_bytes()).await?;
+
+                    let rdb_file = payload.writter.read().await.rdb_file();
+                    if !rdb_file.is_empty() {
+                        write_half.write_all(b"$" as &[u8]).await?;
+                        write_half
+                            .write_all(rdb_file.len().to_string().as_bytes())
+                            .await?;
+                        write_half.write_all(b"\r\n").await?;
+                        write_half.write_all(&rdb_file).await?;
+                        write_half.write_all(b"\r\n").await?;
+                    } else {
+                        write_half.write_all(b"$-1\r\n").await?;
+                    }
                 } else {
                     write_half.write_all(b"-ERR unknown command\r\n").await?;
                 }

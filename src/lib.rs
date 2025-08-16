@@ -185,7 +185,6 @@ pub enum AppCommand {
     INCR(String),
     INFO(String),
     REPLCONF(String, String),
-    PSYNC(String, String),
     None,
 }
 
@@ -205,12 +204,42 @@ pub trait Engine {
     fn stream_id_exists(&self, key: &str, id: &str) -> bool;
     fn stream_last_id(&self, key: &str) -> Option<String>;
     fn stream_search_range(&self, key: &str, start: String, end: String) -> Vec<(String, String)>;
+
+    fn rdb_file(&self) -> Vec<u8> {
+        vec![]
+    }
 }
 #[derive(Debug, Clone)]
 pub struct HashMapEngine {
     pub hash_map: HashMap<String, String>,
     pub list_map: HashMap<String, VecDeque<String>>,
     pub stream_map: HashMap<String, BTreeMap<String, String>>,
+    pub rdb_file: Vec<u8>,
+}
+
+impl HashMapEngine {
+    pub fn new() -> Self {
+        HashMapEngine {
+            hash_map: HashMap::new(),
+            list_map: HashMap::new(),
+            stream_map: HashMap::new(),
+            rdb_file: Self::init_empty_rdb(),
+        }
+    }
+    pub fn init_empty_rdb() -> Vec<u8> {
+        let mut rdb = Vec::new();
+
+        rdb.extend_from_slice(b"REDIS0001"); // RDB version
+        rdb.extend_from_slice(b"\xFA\x09redis-ver\x05\x37.2.0"); // Redis version
+        rdb.extend_from_slice(b"\xFA\x0Aredis-bits\xC0\x40"); // Redis bits
+        rdb.extend_from_slice(b"\xFA\x05ctime\xC2\x6D\x08\xBC\x65"); // Creation time
+        rdb.extend_from_slice(b"\xFA\x08used-mem\xC2\xB0\xC4\x10\x00"); // Used memory
+        rdb.extend_from_slice(b"\xFA\x08aof-base\xC0\x00"); // AOF base
+        rdb.extend_from_slice(b"\x06n3bfeC0\xFF\x5A\xA2"); // Checksum
+        rdb.extend_from_slice(b"\xFF\xFF"); // End of RDB file marker
+
+        rdb
+    }
 }
 
 impl Engine for HashMapEngine {
@@ -361,6 +390,10 @@ impl Engine for HashMapEngine {
         } else {
             return Vec::new(); // Return empty if the stream does not exist
         }
+    }
+
+    fn rdb_file(&self) -> Vec<u8> {
+        self.rdb_file.clone()
     }
 }
 
@@ -771,12 +804,6 @@ impl AppCommand {
                 // }
                 return String::from("+OK\r\n");
             }
-            AppCommand::PSYNC(_runid, _offset) => {
-                return format!(
-                    "+FULLRESYNC {} {}\r\n",
-                    "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", 0
-                );
-            }
         }
     }
 
@@ -888,12 +915,6 @@ impl AppCommand {
             "INCR" if len > 1 => Some(AppCommand::INCR(parts[1].clone())),
             "INFO" if len > 1 => Some(AppCommand::INFO(parts[1].clone())),
             "REPLCONF" if len > 2 => Some(AppCommand::REPLCONF(parts[1].clone(), parts[2].clone())),
-            "PSYNC" if len > 2 => {
-                if len != 3 {
-                    return None; // PSYNC requires exactly 2 arguments
-                }
-                Some(AppCommand::PSYNC(parts[1].clone(), parts[2].clone()))
-            }
             _ => None,
         }
     }
