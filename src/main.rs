@@ -10,6 +10,7 @@ use codecrafters_redis::{
     AppCommand, AppCommandParser, Engine, HashMapEngine, ReplicationClient, ReplicationsManager,
     RespFormatter, StreamPayload,
 };
+const EMPTY_RDB: &[u8] = include_bytes!("./../empty.rdb");
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -200,10 +201,9 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                     let mut w = write_half.lock().await;
                     if !rdb.is_empty() {
                         let mut buf = Vec::from([b'$']);
-                        buf.extend(rdb.len().to_string().as_bytes());
+                        buf.extend(EMPTY_RDB.len().to_string().as_bytes());
                         buf.extend(b"\r\n");
-                        buf.extend(rdb);
-                        buf.extend(b"\r\n");
+                        buf.extend(EMPTY_RDB);
 
                         w.write_all(&buf).await?;
                     } else {
