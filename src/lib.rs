@@ -29,13 +29,25 @@ impl ReplicationsManager {
         self.clients.push(client);
     }
 
-    pub async fn broadcast(&self, messages: Vec<String>) -> io::Result<()> {
+    pub async fn broadcast(&mut self, messages: Vec<String>) -> io::Result<()> {
         let message = messages.as_slice();
-        for client in &self.clients {
+
+        let mut disconnected_clients: Vec<usize> = Vec::new();
+        for (idx, client) in self.clients.iter().enumerate() {
             let mut client = client.lock().await;
-            client
+
+            if let Err(e) = client
                 .write_all(RespFormatter::format_array(&message).as_bytes())
-                .await?;
+                .await
+            {
+                eprintln!("Error writing to client: {}", e);
+                disconnected_clients.push(idx);
+            }
+        }
+
+        // Remove disconnected clients
+        for idx in disconnected_clients.iter().rev() {
+            self.clients.remove(*idx);
         }
         Ok(())
     }

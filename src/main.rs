@@ -110,7 +110,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
         if payload.replica_of.is_empty() && (first_cmd == "SET") {
             payload
                 .replica_manager
-                .read()
+                .write()
                 .await
                 .broadcast(cmd_parts.clone())
                 .await?;
