@@ -46,8 +46,6 @@ impl ReplicationsManager {
             } else {
                 client.flush().await?;
             }
-
-            tokio::time::sleep(Duration::from_millis(10)).await; // Avoid overwhelming the network
         }
 
         // Remove disconnected clients
@@ -161,31 +159,9 @@ impl ReplicationClient {
         // Status line: +FULLRESYNC <id> <offset>  OR  +CONTINUE  OR  -ERR ...
         let status_line = Self::read_resp_line(r).await?;
 
-        let peek = Self::read_resp_line(r).await?;
+        let rdb = self.after_psync_rdb_content().await?;
 
-        println!(
-            "Peek size is: {} and first Peek char {}",
-            peek.len(),
-            String::from_utf8_lossy(&peek)
-        );
-        let rdb = if !peek.is_empty() && peek[0] == b'$' {
-            // This is the bulk header we expected: read the payload.
-            let rdb_bytes = Self::read_resp_bulk_from_header(peek, r).await?;
-            // consume trailing CRLF
-            rdb_bytes
-        } else {
-            // If master didn’t send an RDB (e.g. CONTINUE with no need for RDB),
-            // you can interpret `peek` as part of command stream.
-            // For simplicity we ignore it here; your loop that reads arrays
-            // will keep going from the same BufReader instance.
-            // (If you need to "unread" this line, wrap BufReader in a small
-            // pushback buffer abstraction.)
-            let rdb = Self::read_resp_line(r).await?;
-
-            Some(rdb)
-        };
-
-        Ok((status_line, rdb))
+        Ok((status_line, Some(rdb)))
     }
 
     /// If you prefer pulling the RDB *after* PSYNC, keep this;
