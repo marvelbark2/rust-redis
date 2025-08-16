@@ -246,6 +246,7 @@ impl AppCommand {
         &self,
         writter: &Arc<RwLock<T>>,
         lock: &Arc<RwLock<HashSet<String>>>,
+        replica_of: &str,
     ) -> String {
         match self {
             AppCommand::Ping => String::from("+PONG\r\n"),
@@ -596,7 +597,14 @@ impl AppCommand {
                 engine.set(key.clone(), new_value.to_string());
                 return RespFormatter::format_integer(new_value as usize);
             }
-            AppCommand::INFO(_key) => return RespFormatter::format_bulk_string("role:master"),
+            AppCommand::INFO(_key) => {
+                let msg = if replica_of.is_empty() {
+                    "role:master"
+                } else {
+                    "role:slave"
+                };
+                return RespFormatter::format_bulk_string(msg);
+            }
             AppCommand::None => String::from("-ERR Unknown command\r\n"),
         }
     }

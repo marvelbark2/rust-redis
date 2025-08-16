@@ -8,7 +8,8 @@ use codecrafters_redis::{AppCommand, AppCommandParser, Engine, HashMapEngine, Re
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let mut port = "6379";
+    let mut port = "6379".to_string();
+    let mut replica_of = String::new();
 
     let args: Vec<String> = std::env::args().collect();
 
@@ -16,7 +17,11 @@ async fn main() -> std::io::Result<()> {
     while i < args.len() {
         if args[i] == "--port" {
             if i + 1 < args.len() {
-                port = args[i + 1].as_str()
+                port = args[i + 1].clone();
+            }
+        } else if args[i] == "--replicaof" {
+            if i + 1 < args.len() {
+                replica_of = args[i + 1].clone();
             }
         }
         i += 1;
@@ -41,8 +46,16 @@ async fn main() -> std::io::Result<()> {
         let (stream, _) = listener.accept().await?;
         let engine_mutex_clone = Arc::clone(&engine_mutex);
         let lock_mutex_clone = Arc::clone(&lock_mutex);
+        let replica_of_clone = replica_of.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_stream(stream, engine_mutex_clone, lock_mutex_clone).await {
+            if let Err(e) = handle_stream(
+                stream,
+                engine_mutex_clone,
+                lock_mutex_clone,
+                &replica_of_clone,
+            )
+            .await
+            {
                 eprintln!("Error handling stream: {}", e);
             }
         });
@@ -53,6 +66,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
     stream: TcpStream,
     engine: Arc<RwLock<T>>,
     lock_mutex: Arc<RwLock<HashSet<String>>>,
+    replica_of: &str,
 ) -> std::io::Result<()> {
     // Split the stream so reads and writes can proceed independently.
     let (read_half, mut write_half) = stream.into_split();
@@ -81,7 +95,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
         match AppCommand::from_parts_simple(cmd_parts) {
             Some(cmd) => {
                 if multi_cmd.len() == 0 {
-                    let response = cmd.compute(&engine, &lock_mutex); // see note below
+                    let response = cmd.compute(&engine, &lock_mutex, replica_of); // see note below
                     write_half.write_all(response.await.as_bytes()).await?;
                 } else {
                     multi_cmd.push(cmd);
@@ -106,7 +120,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                     } else {
                         let mut responses = Vec::new();
                         for cmd_item in multi_cmd.drain(1..) {
-                            let response = cmd_item.compute(&engine, &lock_mutex).await;
+                            let response = cmd_item.compute(&engine, &lock_mutex, replica_of).await;
                             responses.push(response);
                         }
                         write_half
