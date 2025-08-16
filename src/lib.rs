@@ -1,6 +1,7 @@
 use bytes::{BufMut, BytesMut};
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound::{Excluded, Unbounded};
+use std::str::from_utf8_unchecked;
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
@@ -158,8 +159,6 @@ impl ReplicationClient {
 
         let status = Self::read_resp_line(r).await?; // e.g. +FULLRESYNC ...\r\n
 
-        // 2) If FULLRESYNC, the VERY NEXT reply must be the RDB bulk
-        let mut rdb = None;
         if status.starts_with(b"+FULLRESYNC") {
             let header = Self::read_resp_line(r).await?; // must be $<len>\r\n
             if header.is_empty() || header[0] != b'$' {
@@ -168,14 +167,34 @@ impl ReplicationClient {
                     "Expected RDB bulk header after FULLRESYNC",
                 ));
             }
-            rdb = Self::read_resp_bulk_from_header(header, r).await?; // Some(bytes)
-            if rdb.is_none() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Null bulk for RDB",
-                ));
-            }
         }
+
+        // Read the next line from the reader directly, instead of using self.read_line()
+        let buf: Vec<u8> = Self::read_resp_line(r).await?;
+
+        let rdb = match buf.first() {
+            Some(b'$') => {
+                let len = unsafe { from_utf8_unchecked(&buf[1..]) }
+                    .parse::<usize>()
+                    .map_err(|v| io::Error::new(io::ErrorKind::Other, v))?;
+                let mut buf = vec![0_u8; len];
+                r.read_exact(&mut buf).await?;
+                Ok(buf)
+            }
+            kind => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Invalid response type: {:?}",
+                    kind.copied().map(|v| v as char)
+                ),
+            )),
+        };
+
+        let rdb = match rdb {
+            Ok(rdb) if rdb.is_empty() => None,
+            Ok(rdb) => Some(rdb),
+            Err(e) => return Err(e),
+        };
 
         Ok((status, rdb))
     }
