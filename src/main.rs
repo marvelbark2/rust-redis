@@ -64,7 +64,7 @@ async fn main() -> std::io::Result<()> {
         let mut repli_client = ReplicationClient::new(&replica_of, port);
         repli_client.connect_and_handshake().await?;
 
-        // let status = repli_client.psync(None, -1).await?;
+        repli_client.psync(None, -1).await?;
         // println!("PSYNC status: {}", String::from_utf8_lossy(&status));
     }
 
