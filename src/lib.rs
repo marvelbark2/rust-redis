@@ -152,16 +152,32 @@ impl ReplicationClient {
             .as_mut()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no reader"))?;
 
-        // PSYNC <runid|?> <offset>
+        // Send PSYNC
         w.write_all(&Self::resp_array(&[b"PSYNC", runid, off_s.as_bytes()]))
             .await?;
 
-        // Status line: +FULLRESYNC <id> <offset>  OR  +CONTINUE  OR  -ERR ...
-        let status_line = Self::read_resp_line(r).await?;
+        let status = Self::read_resp_line(r).await?; // e.g. +FULLRESYNC ...\r\n
 
-        //        let rdb: Vec<u8> = self.after_psync_rdb_content().await?;
+        // 2) If FULLRESYNC, the VERY NEXT reply must be the RDB bulk
+        let mut rdb = None;
+        if status.starts_with(b"+FULLRESYNC") {
+            let header = Self::read_resp_line(r).await?; // must be $<len>\r\n
+            if header.is_empty() || header[0] != b'$' {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Expected RDB bulk header after FULLRESYNC",
+                ));
+            }
+            rdb = Self::read_resp_bulk_from_header(header, r).await?; // Some(bytes)
+            if rdb.is_none() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Null bulk for RDB",
+                ));
+            }
+        }
 
-        Ok((status_line, None))
+        Ok((status, rdb))
     }
 
     /// If you prefer pulling the RDB *after* PSYNC, keep this;
