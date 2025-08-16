@@ -6,8 +6,154 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use std::{io, u64};
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::RwLock;
+
+use tokio::net::{
+    tcp::{OwnedReadHalf, OwnedWriteHalf},
+    TcpStream,
+};
+
+pub struct ReplicationClient {
+    master_host: String,
+    master_port: u16,
+    local_listen_port: String,
+
+    reader: Option<BufReader<OwnedReadHalf>>,
+    writer: Option<OwnedWriteHalf>,
+}
+
+impl ReplicationClient {
+    pub fn new(master: &str, local_listen_port: String) -> Self {
+        let mut it = master.split_whitespace();
+        let host = it.next().unwrap_or("127.0.0.1").to_string();
+        let port = it
+            .next()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(6379);
+
+        Self {
+            master_host: host,
+            master_port: port,
+            local_listen_port,
+            reader: None,
+            writer: None,
+        }
+    }
+
+    pub async fn connect_and_handshake(&mut self) -> io::Result<()> {
+        let addr = format!("{}:{}", self.master_host, self.master_port);
+        let stream = TcpStream::connect(&addr).await?;
+        stream.set_nodelay(true)?;
+
+        let (rd, mut wr) = stream.into_split();
+        let mut reader = BufReader::new(rd);
+
+        // 1) PING
+        wr.write_all(&Self::resp_array(&[b"PING"])).await?;
+        let pong = Self::read_resp_line(&mut reader).await?;
+        if !pong.starts_with(b"+PONG") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "unexpected PING reply: {:?}",
+                    String::from_utf8_lossy(&pong)
+                ),
+            ));
+        }
+
+        // 2) REPLCONF listening-port <n>
+        wr.write_all(&Self::resp_array(&[
+            b"REPLCONF",
+            b"listening-port",
+            self.local_listen_port.as_bytes(),
+        ]))
+        .await?;
+        let ok1 = Self::read_resp_line(&mut reader).await?;
+        if !ok1.starts_with(b"+OK") {
+            println!(
+                "REPLCONF listening-port not OK: {:?}",
+                String::from_utf8_lossy(&ok1)
+            );
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "REPLCONF listening-port not OK",
+            ));
+        }
+
+        // 3) REPLCONF capa psync2
+        wr.write_all(&Self::resp_array(&[b"REPLCONF", b"capa", b"psync2"]))
+            .await?;
+        let ok2 = Self::read_resp_line(&mut reader).await?;
+        if !ok2.starts_with(b"+OK") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "REPLCONF capa psync2 not OK",
+            ));
+        }
+
+        self.reader = Some(reader);
+        self.writer = Some(wr);
+        Ok(())
+    }
+
+    pub async fn psync(&mut self, runid: Option<&[u8]>, offset: i64) -> io::Result<Vec<u8>> {
+        let runid = runid.unwrap_or(b"?");
+        let off_s = offset.to_string();
+        let w = self
+            .writer
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no writer"))?;
+        let r = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no reader"))?;
+
+        w.write_all(&Self::resp_array(&[b"PSYNC", runid, off_s.as_bytes()]))
+            .await?;
+        Self::read_resp_line(r).await
+    }
+
+    pub async fn read_line(&mut self) -> io::Result<Vec<u8>> {
+        let r = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no reader"))?;
+        Self::read_resp_line(r).await
+    }
+
+    pub async fn write(&mut self, buf: &[u8]) -> io::Result<()> {
+        let w = self
+            .writer
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no writer"))?;
+        w.write_all(buf).await
+    }
+
+    fn resp_array(parts: &[&[u8]]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(format!("*{}\r\n", parts.len()).as_bytes());
+        for p in parts {
+            out.extend_from_slice(format!("${}\r\n", p.len()).as_bytes());
+            out.extend_from_slice(p);
+            out.extend_from_slice(b"\r\n");
+        }
+        out
+    }
+
+    /// Helper: read a single RESP line (ends with CRLF). Returns the full line bytes.
+    async fn read_resp_line<R: AsyncBufReadExt + Unpin>(reader: &mut R) -> io::Result<Vec<u8>> {
+        let mut line = Vec::new();
+        let n = reader.read_until(b'\n', &mut line).await?;
+        if n == 0 {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "EOF"));
+        }
+        if line.len() < 2 || line[line.len() - 2] != b'\r' {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "missing CRLF"));
+        }
+        Ok(line) // includes the type byte and CRLF
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct StreamPayload<T: Engine> {
@@ -617,12 +763,12 @@ impl AppCommand {
                 return RespFormatter::format_bulk_string(msg.as_str());
             }
             AppCommand::None => String::from("-ERR Unknown command\r\n"),
-            AppCommand::REPLCONF(subcommand, value) => {
-                if subcommand == "REPLCONF" && value == "ACK" {
-                    return String::from("+OK\r\n");
-                } else {
-                    return RespFormatter::format_error("Unknown REPLCONF subcommand");
-                }
+            AppCommand::REPLCONF(_subcommand, _value) => {
+                // if subcommand == "REPLCONF" && value == "ACK" {
+                // } else {
+                //     return RespFormatter::format_error("Unknown REPLCONF subcommand");
+                // }
+                return String::from("+OK\r\n");
             }
         }
     }

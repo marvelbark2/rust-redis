@@ -7,7 +7,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 
 use codecrafters_redis::{
-    AppCommand, AppCommandParser, Engine, HashMapEngine, RespFormatter, StreamPayload,
+    AppCommand, AppCommandParser, Engine, HashMapEngine, ReplicationClient, RespFormatter,
+    StreamPayload,
 };
 
 #[tokio::main]
@@ -60,43 +61,11 @@ async fn main() -> std::io::Result<()> {
     };
 
     if !replica_of.is_empty() {
-        let repli_host_port = replica_of.split(" ").collect::<Vec<&str>>();
+        let mut repli_client = ReplicationClient::new(&replica_of, port);
+        repli_client.connect_and_handshake().await?;
 
-        let repli_host = if repli_host_port.len() > 1 {
-            repli_host_port[0].to_string()
-        } else {
-            "localhost".to_string()
-        };
-        let repli_port = if repli_host_port.len() > 2 {
-            repli_host_port[1].to_string()
-        } else {
-            "6379".to_string()
-        };
-
-        let repli_address = format!("{}:{}", repli_host, repli_port);
-
-        let mut replica_stream = TcpStream::connect(repli_address).await?;
-
-        replica_stream.write_all(b"*1\r\n$4\r\nPING\r\n").await?;
-
-        replica_stream.flush().await?;
-
-        replica_stream
-            .write_all(
-                format!(
-                    "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n${}\r\n{}\r\n",
-                    repli_port.len(),
-                    repli_port
-                )
-                .as_bytes(),
-            )
-            .await?;
-        replica_stream.flush().await?;
-
-        replica_stream
-            .write_all(b"*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n")
-            .await?;
-        replica_stream.flush().await?;
+        // let status = repli_client.psync(None, -1).await?;
+        // println!("PSYNC status: {}", String::from_utf8_lossy(&status));
     }
 
     loop {
