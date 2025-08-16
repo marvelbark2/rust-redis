@@ -181,7 +181,13 @@ impl ReplicationClient {
         mut self,
         payload: StreamPayload<T>,
     ) {
-        self.read_line().await.ok();
+        let r = self
+            .writer
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no reader"))
+            .unwrap();
+
+        r.flush().await.expect("Failed to flush writer after PSYNC");
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         tokio::spawn(async move {
