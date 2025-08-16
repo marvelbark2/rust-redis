@@ -59,6 +59,13 @@ async fn main() -> std::io::Result<()> {
         master_replid: master_replid.clone(),
     };
 
+    if !replica_of.is_empty() {
+        let repli_host = replica_of.replace(" ", ":");
+        let mut replica_stream = TcpStream::connect(repli_host).await?;
+
+        replica_stream.write_all(b"*1\r\n$4\r\nPING\r\n").await?;
+    }
+
     loop {
         let (stream, _) = listener.accept().await?;
 
