@@ -608,7 +608,10 @@ impl AppCommand {
                 };
 
                 // Add master_replid to the message
-                let msg = format!("{}\r\nmaster_replid:{}", msg, payload.master_replid);
+                let msg = format!(
+                    "{}\r\nmaster_replid:{}\r\nmaster_repl_offset:0",
+                    msg, payload.master_replid
+                );
 
                 return RespFormatter::format_bulk_string(msg.as_str());
             }
