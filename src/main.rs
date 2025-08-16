@@ -79,6 +79,8 @@ async fn main() -> std::io::Result<()> {
 
         replica_stream.write_all(b"*1\r\n$4\r\nPING\r\n").await?;
 
+        replica_stream.flush().await?;
+
         replica_stream
             .write_all(
                 format!(
@@ -89,6 +91,7 @@ async fn main() -> std::io::Result<()> {
                 .as_bytes(),
             )
             .await?;
+        replica_stream.flush().await?;
 
         replica_stream
             .write_all(b"*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n")
