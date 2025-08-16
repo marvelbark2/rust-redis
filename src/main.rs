@@ -198,7 +198,6 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                         buf.extend_from_slice(rdb.as_slice());
                         buf.extend_from_slice(b"\r\n"); // <- crucial
 
-                        println!("Sending RDB file in RESP format: {:?}", buf);
                         w.write_all(&buf).await?;
                     } else {
                         w.write_all(b"$-1\r\n").await?;
