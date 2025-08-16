@@ -215,20 +215,35 @@ impl ReplicationClient {
     ) {
         tokio::spawn(async move {
             loop {
-                let cmd_parts = match self.read_resp_array().await {
-                    Ok(parts) => {
-                        if parts.is_empty() {
-                            continue;
-                        }
-                        println!("Received command parts: {:?}", parts);
-                        parts
-                    }
-                    Err(_) => continue,
-                };
+                // let cmd_parts = match self.read_resp_array().await {
+                //     Ok(parts) => {
+                //         if parts.is_empty() {
+                //             continue;
+                //         }
+                //         println!("Received command parts: {:?}", parts);
+                //         parts
+                //     }
+                //     Err(_) => continue,
+                // };
 
-                if let Some(cmd) = AppCommand::from_parts_simple(cmd_parts) {
-                    cmd.compute(&payload).await;
-                }
+                // if let Some(cmd) = AppCommand::from_parts_simple(cmd_parts) {
+                //     cmd.compute(&payload).await;
+                // }
+                let mut buf = Vec::new();
+
+                let reader = self
+                    .reader
+                    .as_mut()
+                    .expect("Reader should be initialized")
+                    .get_mut();
+
+                let read = reader.read_buf(&mut buf).await;
+
+                println!(
+                    "Read {} bytes from replication stream + Buf {}",
+                    read.unwrap_or(0),
+                    String::from_utf8_lossy(&buf)
+                );
             }
         });
     }
