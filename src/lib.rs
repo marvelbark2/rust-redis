@@ -158,6 +158,7 @@ impl ReplicationClient {
         mut self,
         payload: StreamPayload<T>,
     ) {
+        self.read_line().await.ok();
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         tokio::spawn(async move {
