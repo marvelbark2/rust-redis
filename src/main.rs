@@ -1,4 +1,4 @@
-use bytes::{BufMut, BytesMut};
+use bytes::BufMut;
 use rand::distr::Alphanumeric;
 use rand::Rng;
 use std::collections::HashSet;
@@ -191,12 +191,14 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
 
                     let mut w = write_half.lock().await;
                     if !rdb.is_empty() {
-                        let mut buf = BytesMut::new();
+                        let mut buf = Vec::new();
                         buf.put_u8(b'$');
                         buf.extend_from_slice(rdb.len().to_string().as_bytes());
                         buf.extend_from_slice(b"\r\n");
                         buf.extend_from_slice(rdb.as_slice());
                         buf.extend_from_slice(b"\r\n"); // <- crucial
+
+                        println!("Sending RDB file in RESP format: {:?}", buf);
                         w.write_all(&buf).await?;
                     } else {
                         w.write_all(b"$-1\r\n").await?;
