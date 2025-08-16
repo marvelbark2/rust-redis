@@ -229,14 +229,21 @@ impl HashMapEngine {
     pub fn init_empty_rdb() -> Vec<u8> {
         let mut rdb = Vec::new();
 
-        rdb.extend_from_slice(b"REDIS0001"); // RDB version
-        rdb.extend_from_slice(b"\xFA\x09redis-ver\x05\x37.2.0"); // Redis version
-        rdb.extend_from_slice(b"\xFA\x0Aredis-bits\xC0\x40"); // Redis bits
-        rdb.extend_from_slice(b"\xFA\x05ctime\xC2\x6D\x08\xBC\x65"); // Creation time
-        rdb.extend_from_slice(b"\xFA\x08used-mem\xC2\xB0\xC4\x10\x00"); // Used memory
-        rdb.extend_from_slice(b"\xFA\x08aof-base\xC0\x00"); // AOF base
-        rdb.extend_from_slice(b"\x06n3bfeC0\xFF\x5A\xA2"); // Checksum
-        rdb.extend_from_slice(b"\xFF\xFF"); // End of RDB file marker
+        // RDB Header
+        rdb.extend_from_slice(b"REDIS0009");
+
+        // Aux fields
+        rdb.extend_from_slice(b"\xFA\x09redis-ver\x057.2.0"); // redis-ver 7.2.0
+        rdb.extend_from_slice(b"\xFA\x0Aredis-bits\xC0\x40"); // redis-bits 64
+        rdb.extend_from_slice(b"\xFA\x05ctime\xC2\x6D\x08\xBC\x65"); // creation time
+        rdb.extend_from_slice(b"\xFA\x08used-mem\xC2\xB0\xC4\x10\x00"); // used-mem
+        rdb.extend_from_slice(b"\xFA\x08aof-base\xC0\x00"); // aof-base 0
+
+        // EOF marker
+        rdb.extend_from_slice(b"\xFF");
+
+        // CRC64 checksum (8 bytes)
+        rdb.extend_from_slice(b"\x6E\x33\x62\x66\x65\x43\x30\x0A");
 
         rdb
     }

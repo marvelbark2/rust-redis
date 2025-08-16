@@ -151,6 +151,8 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                     write_half.write_all(first_frag.as_bytes()).await?;
 
                     let rdb_file = payload.writter.read().await.rdb_file();
+
+                    // Invalid RDB file: unexpected EOF
                     if !rdb_file.is_empty() {
                         write_half.write_all(b"$" as &[u8]).await?;
                         write_half
