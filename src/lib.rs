@@ -325,7 +325,7 @@ impl ReplicationClient {
     async fn read_resp_line<R: tokio::io::AsyncBufRead + Unpin>(
         reader: &mut R,
     ) -> io::Result<Vec<u8>> {
-        let mut line = Vec::with_capacity(64);
+        let mut line = Vec::new();
         let n = reader.read_until(b'\n', &mut line).await?;
         if n == 0 {
             return Err(io::Error::new(
