@@ -707,6 +707,7 @@ impl AppCommand {
                 }
             }
             "INCR" if len > 1 => Some(AppCommand::INCR(parts[1].clone())),
+            "INFO" if len > 1 => Some(AppCommand::INFO(parts[1].clone())),
             _ => None,
         }
     }
