@@ -159,17 +159,18 @@ impl ReplicationClient {
         // Status line: +FULLRESYNC <id> <offset>  OR  +CONTINUE  OR  -ERR ...
         let status_line = Self::read_resp_line(r).await?;
 
-        // After FULLRESYNC, master sends the RDB as one RESP Bulk String.
-        // Try to read the next token; if it's a bulk header, read the bulk.
-        // If it's something else (e.g., inline/array), push it back logic would be needed;
-        // but in a normal sync you'll get a bulk here.
         let peek = Self::read_resp_line(r).await?;
         let rdb = if !peek.is_empty() && peek[0] == b'$' {
             // This is the bulk header we expected: read the payload.
             let rdb_bytes = Self::read_resp_bulk_from_header(peek, r).await?;
             let line = Self::read_resp_line(r).await?; // consume trailing CRLF
+            let line2 = Self::read_resp_line(r).await?; // consume trailing CRLF
 
-            println!("After rdb_bytes: {:?}", String::from_utf8_lossy(&line));
+            println!(
+                "After rdb_bytes: {:?} & second {:?}",
+                String::from_utf8_lossy(&line),
+                String::from_utf8_lossy(&line2)
+            );
 
             rdb_bytes
         } else {
