@@ -60,7 +60,7 @@ async fn main() -> std::io::Result<()> {
     };
 
     if !replica_of.is_empty() {
-        let repli_host_port = replica_of.split(":").collect::<Vec<&str>>();
+        let repli_host_port = replica_of.split(" ").collect::<Vec<&str>>();
 
         let repli_host = if repli_host_port.len() > 1 {
             repli_host_port[0].to_string()
