@@ -201,10 +201,12 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                     let mut w = write_half.lock().await;
                     if !rdb.is_empty() {
                         let mut buf = Vec::from([b'$']);
-                        buf.extend(EMPTY_RDB.len().to_string().as_bytes());
-                        buf.extend(b"\r\n");
+
+                        let breaker = b"\r\n";
+                        buf.extend((EMPTY_RDB.len() - breaker.len()).to_string().as_bytes());
+                        buf.extend(breaker);
                         buf.extend(EMPTY_RDB);
-                        buf.extend(b"\r\n");
+                        buf.extend(breaker);
 
                         w.write_all(&buf).await?;
                     } else {
