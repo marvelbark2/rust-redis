@@ -30,11 +30,11 @@ impl ReplicationsManager {
     }
 
     pub async fn broadcast(&self, messages: Vec<String>) -> io::Result<()> {
-        let message = messages.join("\r\n");
+        let message = messages.as_slice();
         for client in &self.clients {
             let mut client = client.lock().await;
             client
-                .write_all(RespFormatter::format_bulk_string(&message).as_bytes())
+                .write_all(RespFormatter::format_array(&message).as_bytes())
                 .await?;
         }
         Ok(())
