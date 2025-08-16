@@ -203,9 +203,10 @@ impl ReplicationClient {
         // Read the exact number of bytes for the bulk string payload
         let mut buf = vec![0u8; len];
         r.read_exact(&mut buf).await?;
-        // Consume trailing CRLF after the bulk payload
-        let mut crlf = [0u8; 2];
-        r.read_exact(&mut crlf).await?;
+
+        // // Consume trailing CRLF after the bulk payload
+        // let mut crlf = [0u8; 2];
+        // r.read_exact(&mut crlf).await?;
 
         Ok(buf)
     }
