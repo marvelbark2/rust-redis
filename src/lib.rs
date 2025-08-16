@@ -219,6 +219,7 @@ impl ReplicationClient {
                         if parts.is_empty() {
                             continue;
                         }
+                        println!("Received command parts: {:?}", parts);
                         parts
                     }
                     Err(_) => continue,
@@ -506,8 +507,8 @@ impl HashMapEngine {
         // EOF then CRC64 footer
         rdb.put_u8(0xFF);
 
-        let crc = crc64_ecma(&rdb); // compute across everything so far
-        rdb.extend_from_slice(&crc.to_le_bytes());
+        // let crc = crc64_ecma(&rdb); // compute across everything so far
+        // rdb.extend_from_slice(&crc.to_le_bytes());
 
         rdb.to_vec()
     }
