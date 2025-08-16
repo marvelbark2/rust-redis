@@ -191,7 +191,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
 
                     let mut w = write_half.lock().await;
                     if !rdb.is_empty() {
-                        let mut buf = BytesMut::with_capacity(16 + rdb.len());
+                        let mut buf = BytesMut::new();
                         buf.put_u8(b'$');
                         buf.extend_from_slice(rdb.len().to_string().as_bytes());
                         buf.extend_from_slice(b"\r\n");
