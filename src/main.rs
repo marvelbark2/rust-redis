@@ -29,7 +29,7 @@ async fn main() -> std::io::Result<()> {
         i += 1;
     }
 
-    let address = format!("127.0.0.1:{}", port);
+    let address = format!("0.0.0.0:{}", port);
 
     println!("Starting server on {}", address);
 
