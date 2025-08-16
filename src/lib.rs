@@ -180,15 +180,12 @@ impl ReplicationClient {
                     continue;
                 }
 
-                let first_cmd = cmd_parts[0].clone().to_uppercase();
-
                 match AppCommand::from_parts_simple(cmd_parts) {
                     Some(cmd) => {
                         //cmd.compute(&payload).await;
                         cmd.compute(&payload).await;
                     }
                     None => {
-                        eprintln!("Unknown command in replication {:?}", first_cmd);
                         continue;
                     }
                 };
