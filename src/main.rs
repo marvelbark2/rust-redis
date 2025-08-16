@@ -1,4 +1,3 @@
-use bytes::BufMut;
 use rand::distr::Alphanumeric;
 use rand::Rng;
 use std::collections::HashSet;
@@ -198,12 +197,10 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
 
                     let mut w = write_half.lock().await;
                     if !rdb.is_empty() {
-                        let mut buf = Vec::new();
-                        buf.put_u8(b'$');
-                        buf.extend_from_slice(rdb.len().to_string().as_bytes());
-                        buf.extend_from_slice(b"\r\n");
-                        buf.extend_from_slice(rdb.as_slice());
-                        buf.extend_from_slice(b"\r\n"); // <- crucial
+                        let mut buf = Vec::from([b'$']);
+                        buf.extend(rdb.len().to_string().as_bytes());
+                        buf.extend(b"\r\n");
+                        buf.extend(rdb);
 
                         w.write_all(&buf).await?;
                     } else {
