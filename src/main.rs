@@ -61,8 +61,7 @@ async fn main() -> std::io::Result<()> {
         let mut repli_client = ReplicationClient::new(&replica_of, port);
         repli_client.connect_and_handshake().await?;
 
-        let status = repli_client.psync(None, -1).await?;
-        let rdb_file = repli_client.after_psync_rdb_content().await?;
+        let (status, rdb_file) = repli_client.psync(None, -1).await?;
 
         println!(
             "PSYNC status: {} & rdb_file {:?}",
