@@ -65,7 +65,9 @@ async fn main() -> std::io::Result<()> {
 
         println!("PSYNC status: {}", String::from_utf8_lossy(&status));
 
-        repli_client.listen_for_replication(payload.clone()).await;
+        if status.len() > 0 {
+            repli_client.listen_for_replication(payload.clone()).await;
+        }
     }
 
     loop {
