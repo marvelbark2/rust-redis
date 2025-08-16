@@ -208,9 +208,9 @@ impl ReplicationClient {
         let mut buf = vec![0u8; len];
         r.read_exact(&mut buf).await?;
 
-        // // Consume trailing CRLF after the bulk payload
-        // let mut crlf = [0u8; 2];
-        // r.read_exact(&mut crlf).await?;
+        // Consume trailing CRLF after the bulk payload
+        let mut crlf = [0u8; 2];
+        r.read_exact(&mut crlf).await?;
 
         Ok(buf)
     }
@@ -350,7 +350,7 @@ impl ReplicationClient {
         reader: &mut R,
     ) -> io::Result<Vec<u8>> {
         let mut line = Vec::new();
-        let n = reader.read_until(b'\n', &mut line).await?;
+        let n = reader.read_buf(&mut line).await?;
         if n == 0 {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "EOF"));
         }
