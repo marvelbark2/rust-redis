@@ -185,6 +185,7 @@ pub enum AppCommand {
     INCR(String),
     INFO(String),
     REPLCONF(String, String),
+    PSYNC(String, String),
     None,
 }
 
@@ -770,6 +771,12 @@ impl AppCommand {
                 // }
                 return String::from("+OK\r\n");
             }
+            AppCommand::PSYNC(_runid, _offset) => {
+                return format!(
+                    "+FULLRESYNC {} {}\r\n",
+                    "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", 0
+                );
+            }
         }
     }
 
@@ -881,6 +888,12 @@ impl AppCommand {
             "INCR" if len > 1 => Some(AppCommand::INCR(parts[1].clone())),
             "INFO" if len > 1 => Some(AppCommand::INFO(parts[1].clone())),
             "REPLCONF" if len > 2 => Some(AppCommand::REPLCONF(parts[1].clone(), parts[2].clone())),
+            "PSYNC" if len > 2 => {
+                if len != 3 {
+                    return None; // PSYNC requires exactly 2 arguments
+                }
+                Some(AppCommand::PSYNC(parts[1].clone(), parts[2].clone()))
+            }
             _ => None,
         }
     }
