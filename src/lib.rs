@@ -29,6 +29,7 @@ pub enum AppCommand {
     XRange(String, String, String),
     XRead(i32, String, String),
     INCR(String),
+    INFO(String),
     None,
 }
 
@@ -595,6 +596,7 @@ impl AppCommand {
                 engine.set(key.clone(), new_value.to_string());
                 return RespFormatter::format_integer(new_value as usize);
             }
+            AppCommand::INFO(_key) => return RespFormatter::format_bulk_string("role:master"),
             AppCommand::None => String::from("-ERR Unknown command\r\n"),
         }
     }
