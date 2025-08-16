@@ -59,6 +59,8 @@ async fn main() -> std::io::Result<()> {
 
     if !replica_of.is_empty() {
         let mut repli_client = ReplicationClient::new(&replica_of, port);
+
+        println!("Connecting to master at {}", replica_of);
         repli_client.connect_and_handshake().await?;
 
         let (status, rdb_file) = repli_client.psync(None, -1).await?;
@@ -201,6 +203,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                         buf.extend(rdb.len().to_string().as_bytes());
                         buf.extend(b"\r\n");
                         buf.extend(rdb);
+                        buf.extend(b"\r\n");
 
                         w.write_all(&buf).await?;
                     } else {

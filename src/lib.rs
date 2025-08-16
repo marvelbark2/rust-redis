@@ -133,27 +133,6 @@ impl ReplicationClient {
         Ok(())
     }
 
-    async fn drain_reader(&mut self) -> std::io::Result<usize> {
-        let mut discarded = 0;
-        let mut buf = [0u8; 1024];
-
-        let reader = self
-            .reader
-            .as_mut()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no reader"))?;
-        loop {
-            match reader.read(&mut buf).await {
-                Ok(0) => break, // EOF
-                Ok(n) => discarded += n,
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e),
-            }
-            if discarded == 0 {
-                break;
-            }
-        }
-        Ok(discarded)
-    }
     pub async fn psync(
         &mut self,
         runid: Option<&[u8]>,
@@ -179,11 +158,16 @@ impl ReplicationClient {
         let status_line = Self::read_resp_line(r).await?;
 
         let peek = Self::read_resp_line(r).await?;
+
+        println!(
+            "Peek size is: {} and first Peek char {}",
+            peek.len(),
+            String::from_utf8_lossy(&peek)
+        );
         let rdb = if !peek.is_empty() && peek[0] == b'$' {
             // This is the bulk header we expected: read the payload.
             let rdb_bytes = Self::read_resp_bulk_from_header(peek, r).await?;
-            self.drain_reader().await?; // consume trailing CRLF
-
+            // consume trailing CRLF
             rdb_bytes
         } else {
             // If master didn’t send an RDB (e.g. CONTINUE with no need for RDB),
@@ -192,7 +176,9 @@ impl ReplicationClient {
             // will keep going from the same BufReader instance.
             // (If you need to "unread" this line, wrap BufReader in a small
             // pushback buffer abstraction.)
-            None
+            let rdb = Self::read_resp_line(r).await?;
+
+            Some(rdb)
         };
 
         Ok((status_line, rdb))
