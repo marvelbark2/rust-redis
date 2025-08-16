@@ -62,7 +62,10 @@ async fn main() -> std::io::Result<()> {
         repli_client.connect_and_handshake().await?;
 
         let status = repli_client.psync(None, -1).await?;
+
         println!("PSYNC status: {}", String::from_utf8_lossy(&status));
+
+        repli_client.listen_for_replication(payload.clone()).await;
     }
 
     loop {
@@ -107,14 +110,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
 
         let first_cmd = cmd_parts[0].clone().to_uppercase();
 
-        if payload.replica_of.is_empty() && (first_cmd == "SET") {
-            payload
-                .replica_manager
-                .write()
-                .await
-                .broadcast(cmd_parts.clone())
-                .await?;
-        }
+        let cmd_parts2 = cmd_parts.clone();
 
         match AppCommand::from_parts_simple(cmd_parts) {
             Some(cmd) => {
@@ -201,6 +197,18 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                     w.write_all(b"-ERR unknown command\r\n").await?;
                     w.flush().await?;
                 }
+            }
+        }
+
+        if payload.replica_of.is_empty() && (first_cmd == "SET") {
+            if let Err(e) = payload
+                .replica_manager
+                .write()
+                .await
+                .broadcast(cmd_parts2.clone())
+                .await
+            {
+                eprintln!("Error broadcasting command: {}", e);
             }
         }
     }

@@ -150,7 +150,52 @@ impl ReplicationClient {
 
         w.write_all(&Self::resp_array(&[b"PSYNC", runid, off_s.as_bytes()]))
             .await?;
+        Self::read_resp_line(r).await?;
         Self::read_resp_line(r).await
+    }
+
+    pub async fn listen_for_replication<T: Engine + Send + Sync + 'static>(
+        self,
+        payload: StreamPayload<T>,
+    ) {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let mut reader = self.reader.expect("Reader not initialized for replication");
+
+        tokio::spawn(async move {
+            let mut cmd_parser = AppCommandParser::new();
+            loop {
+                let cmd_parts = match cmd_parser.parse_resp_array_async(&mut reader).await {
+                    Ok(line) => {
+                        if line.is_empty() {
+                            continue;
+                        }
+
+                        println!("Replication line: {:?}", line);
+                        line
+                    }
+                    Err(_) => {
+                        continue;
+                    }
+                };
+
+                if cmd_parts.is_empty() {
+                    continue;
+                }
+
+                let first_cmd = cmd_parts[0].clone().to_uppercase();
+
+                match AppCommand::from_parts_simple(cmd_parts) {
+                    Some(cmd) => {
+                        //cmd.compute(&payload).await;
+                        cmd.compute(&payload).await;
+                    }
+                    None => {
+                        eprintln!("Unknown command in replication {:?}", first_cmd);
+                        continue;
+                    }
+                };
+            }
+        });
     }
 
     pub async fn read_line(&mut self) -> io::Result<Vec<u8>> {
@@ -169,6 +214,12 @@ impl ReplicationClient {
         w.write_all(buf).await
     }
 
+    pub fn into_split(self) -> (BufReader<OwnedReadHalf>, OwnedWriteHalf) {
+        (
+            self.reader.expect("Reader not initialized"),
+            self.writer.expect("Writer not initialized"),
+        )
+    }
     fn resp_array(parts: &[&[u8]]) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(format!("*{}\r\n", parts.len()).as_bytes());
@@ -181,7 +232,9 @@ impl ReplicationClient {
     }
 
     /// Helper: read a single RESP line (ends with CRLF). Returns the full line bytes.
-    async fn read_resp_line<R: AsyncBufReadExt + Unpin>(reader: &mut R) -> io::Result<Vec<u8>> {
+    async fn read_resp_line<R: tokio::io::AsyncBufRead + Unpin>(
+        reader: &mut R,
+    ) -> io::Result<Vec<u8>> {
         let mut line = Vec::new();
         let n = reader.read_until(b'\n', &mut line).await?;
         if n == 0 {
