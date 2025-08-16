@@ -192,19 +192,11 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                     let mut w = write_half.lock().await;
                     if !rdb.is_empty() {
                         let mut buf = BytesMut::with_capacity(16 + rdb.len());
-
-                        // RESP bulk string: $<len>\r\n
                         buf.put_u8(b'$');
                         buf.extend_from_slice(rdb.len().to_string().as_bytes());
                         buf.extend_from_slice(b"\r\n");
-
-                        // raw RDB payload
                         buf.extend_from_slice(rdb.as_slice());
-
-                        // trailing CRLF
-                        buf.extend_from_slice(b"\r\n");
-
-                        // write all in one go
+                        buf.extend_from_slice(b"\r\n"); // <- crucial
                         w.write_all(&buf).await?;
                     } else {
                         w.write_all(b"$-1\r\n").await?;

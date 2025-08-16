@@ -1,3 +1,4 @@
+use bytes::{BufMut, BytesMut};
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound::{Excluded, Unbounded};
 use std::{
@@ -466,25 +467,49 @@ impl HashMapEngine {
         }
     }
     pub fn init_empty_rdb() -> Vec<u8> {
-        let mut rdb = Vec::new();
+        let mut rdb = BytesMut::with_capacity(128);
 
-        // RDB Header
+        // Header (RDB version 9)
         rdb.extend_from_slice(b"REDIS0009");
 
-        // Aux fields
-        rdb.extend_from_slice(b"\xFA\x09redis-ver\x057.2.0"); // redis-ver 7.2.0
-        rdb.extend_from_slice(b"\xFA\x0Aredis-bits\xC0\x40"); // redis-bits 64
-        rdb.extend_from_slice(b"\xFA\x05ctime\xC2\x6D\x08\xBC\x65"); // creation time
-        rdb.extend_from_slice(b"\xFA\x08used-mem\xC2\xB0\xC4\x10\x00"); // used-mem
-        rdb.extend_from_slice(b"\xFA\x08aof-base\xC0\x00"); // aof-base 0
+        // AUX fields
+        rdb.put_u8(0xFA); // AUX opcode
+        rdb.put_u8(9); // len("redis-ver")
+        rdb.extend_from_slice(b"redis-ver");
+        rdb.put_u8(5); // len("7.2.0")
+        rdb.extend_from_slice(b"7.2.0");
 
-        // EOF marker
-        rdb.extend_from_slice(b"\xFF");
+        rdb.put_u8(0xFA);
+        rdb.put_u8(10); // len("redis-bits")
+        rdb.extend_from_slice(b"redis-bits");
+        rdb.put_u8(0xC0);
+        rdb.put_u8(64); // integer-encoded 64
 
-        // CRC64 checksum (8 bytes)
-        //        rdb.extend_from_slice(b"\x6E\x33\x62\x66\x65\x43\x30\x0A");
+        rdb.put_u8(0xFA);
+        rdb.put_u8(5); // len("ctime")
+        rdb.extend_from_slice(b"ctime");
+        rdb.put_u8(0xC2); // int32 encoding
+        rdb.extend_from_slice(&0x65BC086Du32.to_le_bytes()); // example timestamp
 
-        rdb
+        rdb.put_u8(0xFA);
+        rdb.put_u8(8); // len("used-mem")
+        rdb.extend_from_slice(b"used-mem");
+        rdb.put_u8(0xC2); // int32 encoding
+        rdb.extend_from_slice(&0x0010C4B0u32.to_le_bytes()); // example mem
+
+        rdb.put_u8(0xFA);
+        rdb.put_u8(8); // len("aof-base")
+        rdb.extend_from_slice(b"aof-base");
+        rdb.put_u8(0xC0);
+        rdb.put_u8(0); // integer-encoded 0
+
+        // EOF then CRC64 footer
+        rdb.put_u8(0xFF);
+
+        let crc = crc64_ecma(&rdb); // compute across everything so far
+        rdb.extend_from_slice(&crc.to_le_bytes());
+
+        rdb.to_vec()
     }
 }
 
@@ -1339,4 +1364,35 @@ impl RespFormatter {
 
         out
     }
+}
+
+const CRC64_ECMA_TABLE: [u64; 256] = {
+    let mut table = [0u64; 256];
+    let mut i = 0;
+    while i < 256 {
+        let mut crc = i as u64;
+        let mut j = 0;
+        while j < 8 {
+            if crc & 1 != 0 {
+                crc = (crc >> 1) ^ 0xC96C5795D7870F42; // reversed poly
+            } else {
+                crc >>= 1;
+            }
+            j += 1;
+        }
+        table[i] = crc;
+        i += 1;
+    }
+    table
+};
+
+/// Compute CRC64 using ECMA-182 polynomial.
+/// This is exactly what Redis uses in RDB checksum.
+pub fn crc64_ecma(buf: &[u8]) -> u64 {
+    let mut crc: u64 = 0;
+    for &b in buf {
+        let idx = ((crc ^ (b as u64)) & 0xFF) as usize;
+        crc = CRC64_ECMA_TABLE[idx] ^ (crc >> 8);
+    }
+    crc
 }
