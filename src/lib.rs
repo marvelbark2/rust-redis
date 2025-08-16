@@ -384,12 +384,12 @@ impl ReplicationClient {
         // consume trailing CRLF
         let mut tail = [0u8; 2];
         reader.read_exact(&mut tail).await?;
-        if tail != [b'\r', b'\n'] {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "missing CRLF after bulk payload",
-            ));
-        }
+        // if tail != [b'\r', b'\n'] {
+        //     return Err(io::Error::new(
+        //         io::ErrorKind::InvalidData,
+        //         "missing CRLF after bulk payload",
+        //     ));
+        // }
         Ok(Some(buf))
     }
 }
