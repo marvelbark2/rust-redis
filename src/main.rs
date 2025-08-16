@@ -160,7 +160,6 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                             .await?;
                         write_half.write_all(b"\r\n").await?;
                         write_half.write_all(&rdb_file).await?;
-                        write_half.write_all(b"\r\n").await?;
                     } else {
                         write_half.write_all(b"$-1\r\n").await?;
                     }
