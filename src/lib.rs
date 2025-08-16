@@ -13,6 +13,31 @@ use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
     TcpStream,
 };
+#[derive(Debug)]
+pub struct ReplicationsManager {
+    clients: Vec<Arc<tokio::sync::Mutex<OwnedWriteHalf>>>,
+}
+
+impl ReplicationsManager {
+    pub fn new() -> Self {
+        ReplicationsManager {
+            clients: Vec::new(),
+        }
+    }
+
+    pub fn add_client(&mut self, client: Arc<tokio::sync::Mutex<OwnedWriteHalf>>) {
+        self.clients.push(client);
+    }
+
+    pub async fn broadcast(&self, messages: Vec<String>) -> io::Result<()> {
+        let message = messages.join("\r\n");
+        for client in &self.clients {
+            let mut client = client.lock().await;
+            client.write_all(message.as_bytes()).await?;
+        }
+        Ok(())
+    }
+}
 
 pub struct ReplicationClient {
     master_host: String,
@@ -161,6 +186,7 @@ pub struct StreamPayload<T: Engine> {
     pub lock: Arc<RwLock<HashSet<String>>>,
     pub replica_of: String,
     pub master_replid: String,
+    pub replica_manager: Arc<RwLock<ReplicationsManager>>,
 }
 
 #[derive(PartialEq, Debug)]

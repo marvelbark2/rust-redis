@@ -7,8 +7,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 
 use codecrafters_redis::{
-    AppCommand, AppCommandParser, Engine, HashMapEngine, ReplicationClient, RespFormatter,
-    StreamPayload,
+    AppCommand, AppCommandParser, Engine, HashMapEngine, ReplicationClient, ReplicationsManager,
+    RespFormatter, StreamPayload,
 };
 
 #[tokio::main]
@@ -54,6 +54,7 @@ async fn main() -> std::io::Result<()> {
         lock: Arc::clone(&lock_mutex),
         replica_of: replica_of.clone(),
         master_replid: master_replid.clone(),
+        replica_manager: Arc::new(RwLock::new(ReplicationsManager::new())),
     };
 
     if !replica_of.is_empty() {
@@ -80,9 +81,11 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
     stream: TcpStream,
     payload: &StreamPayload<T>,
 ) -> std::io::Result<()> {
-    // Split the stream so reads and writes can proceed independently.
-    let (read_half, mut write_half) = stream.into_split();
+    let (read_half, write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
+
+    // Wrap writer so it can be shared with ReplicationsManager
+    let write_half = Arc::new(tokio::sync::Mutex::new(write_half));
 
     let mut multi_cmd: Vec<AppCommand> = Vec::new();
 
@@ -104,69 +107,100 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
 
         let first_cmd = cmd_parts[0].clone().to_uppercase();
 
+        if payload.replica_of.is_empty() && (first_cmd == "SET") {
+            payload
+                .replica_manager
+                .read()
+                .await
+                .broadcast(cmd_parts.clone())
+                .await?;
+        }
+
         match AppCommand::from_parts_simple(cmd_parts) {
             Some(cmd) => {
                 if multi_cmd.len() == 0 {
                     let response = cmd.compute(payload); // see note below
-                    write_half.write_all(response.await.as_bytes()).await?;
+                    let resp = response.await;
+                    {
+                        let mut w = write_half.lock().await;
+                        w.write_all(resp.as_bytes()).await?;
+                        w.flush().await?;
+                    }
                 } else {
                     multi_cmd.push(cmd);
-                    write_half.write_all(b"+QUEUED\r\n").await?;
+                    let mut w = write_half.lock().await;
+                    w.write_all(b"+QUEUED\r\n").await?;
+                    w.flush().await?;
                 }
-                write_half.flush().await?;
             }
             None => {
                 if first_cmd == "MULTI" {
                     multi_cmd.push(AppCommand::None);
-                    write_half.write_all(b"+OK\r\n").await?;
+                    let mut w = write_half.lock().await;
+                    w.write_all(b"+OK\r\n").await?;
+                    w.flush().await?;
                 } else if first_cmd == "DISCARD" && !multi_cmd.is_empty() {
                     multi_cmd.clear();
-                    write_half.write_all(b"+OK\r\n").await?;
+                    let mut w = write_half.lock().await;
+                    w.write_all(b"+OK\r\n").await?;
+                    w.flush().await?;
                 } else if first_cmd == "DISCARD" && multi_cmd.is_empty() {
-                    write_half
-                        .write_all(b"-ERR DISCARD without MULTI\r\n")
-                        .await?;
+                    let mut w = write_half.lock().await;
+                    w.write_all(b"-ERR DISCARD without MULTI\r\n").await?;
+                    w.flush().await?;
                 } else if first_cmd == "EXEC" {
                     if multi_cmd.is_empty() {
-                        write_half.write_all(b"-ERR EXEC without MULTI\r\n").await?;
+                        let mut w = write_half.lock().await;
+                        w.write_all(b"-ERR EXEC without MULTI\r\n").await?;
+                        w.flush().await?;
                     } else {
                         let mut responses = Vec::new();
                         for cmd_item in multi_cmd.drain(1..) {
                             let response = cmd_item.compute(payload).await;
                             responses.push(response);
                         }
-                        write_half
-                            .write_all(RespFormatter::format_array_result(&responses).as_bytes())
-                            .await?;
+                        let resp = RespFormatter::format_array_result(&responses);
+                        let mut w = write_half.lock().await;
+                        w.write_all(resp.as_bytes()).await?;
+                        w.flush().await?;
 
                         multi_cmd.clear();
                     }
-                    write_half.flush().await?;
+                } else if first_cmd == "REPLCONF" {
+                    let mut w = write_half.lock().await;
+                    w.write_all(b"+OK\r\n").await?;
+                    w.flush().await?;
                 } else if first_cmd == "PSYNC" {
-                    let first_frag = format!(
-                        "+FULLRESYNC {} {}\r\n",
-                        "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", 0
-                    );
-
-                    write_half.write_all(first_frag.as_bytes()).await?;
+                    {
+                        payload
+                            .replica_manager
+                            .write()
+                            .await
+                            .add_client(write_half.clone());
+                    }
+                    let first_frag = format!("+FULLRESYNC {} {}\r\n", payload.master_replid, 0);
+                    {
+                        let mut w = write_half.lock().await;
+                        w.write_all(first_frag.as_bytes()).await?;
+                    }
 
                     let rdb_file = payload.writter.read().await.rdb_file();
 
-                    // Invalid RDB file: unexpected EOF
+                    let mut w = write_half.lock().await;
                     if !rdb_file.is_empty() {
-                        write_half.write_all(b"$" as &[u8]).await?;
-                        write_half
-                            .write_all(rdb_file.len().to_string().as_bytes())
-                            .await?;
-                        write_half.write_all(b"\r\n").await?;
-                        write_half.write_all(&rdb_file).await?;
+                        w.write_all(b"$").await?;
+                        w.write_all(rdb_file.len().to_string().as_bytes()).await?;
+                        w.write_all(b"\r\n").await?;
+                        w.write_all(&rdb_file).await?;
                     } else {
-                        write_half.write_all(b"$-1\r\n").await?;
+                        w.write_all(b"$-1\r\n").await?;
                     }
+                    w.flush().await?;
                 } else {
-                    write_half.write_all(b"-ERR unknown command\r\n").await?;
+                    let mut w = write_half.lock().await;
+                    w.write_all(b"-ERR unknown command\r\n").await?;
+                    w.flush().await?;
                 }
-                write_half.flush().await?;
             }
         }
     }
