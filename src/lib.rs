@@ -33,7 +33,9 @@ impl ReplicationsManager {
         let message = messages.join("\r\n");
         for client in &self.clients {
             let mut client = client.lock().await;
-            client.write_all(message.as_bytes()).await?;
+            client
+                .write_all(RespFormatter::format_bulk_string(&message).as_bytes())
+                .await?;
         }
         Ok(())
     }
