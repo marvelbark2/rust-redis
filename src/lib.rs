@@ -186,6 +186,10 @@ impl ReplicationClient {
         // Read the next line which should be a bulk string header like $<len>\r\n
         let next = Self::read_resp_line(r).await?;
         if next.is_empty() || next[0] != b'$' {
+            println!(
+                "Expected bulk string header, got: {:?}",
+                String::from_utf8_lossy(&next)
+            );
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Expected bulk string header",
