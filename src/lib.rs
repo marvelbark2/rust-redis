@@ -167,6 +167,10 @@ impl ReplicationClient {
         let rdb = if !peek.is_empty() && peek[0] == b'$' {
             // This is the bulk header we expected: read the payload.
             let rdb_bytes = Self::read_resp_bulk_from_header(peek, r).await?;
+            let line = Self::read_resp_line(r).await?; // consume trailing CRLF
+
+            println!("After rdb_bytes: {:?}", line);
+
             rdb_bytes
         } else {
             // If master didn’t send an RDB (e.g. CONTINUE with no need for RDB),
@@ -334,7 +338,6 @@ impl ReplicationClient {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "missing CRLF"));
         }
 
-        println!("Read line: {:?}", String::from_utf8_lossy(&line));
         Ok(line)
     }
 
