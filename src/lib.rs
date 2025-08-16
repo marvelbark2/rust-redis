@@ -482,7 +482,7 @@ impl HashMapEngine {
         rdb.extend_from_slice(b"\xFF");
 
         // CRC64 checksum (8 bytes)
-        rdb.extend_from_slice(b"\x6E\x33\x62\x66\x65\x43\x30\x0A");
+        //        rdb.extend_from_slice(b"\x6E\x33\x62\x66\x65\x43\x30\x0A");
 
         rdb
     }
