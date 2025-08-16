@@ -333,6 +333,8 @@ impl ReplicationClient {
         if line.len() < 2 || line[line.len() - 2] != b'\r' || *line.last().unwrap() != b'\n' {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "missing CRLF"));
         }
+
+        println!("Read line: {:?}", String::from_utf8_lossy(&line));
         Ok(line)
     }
 
