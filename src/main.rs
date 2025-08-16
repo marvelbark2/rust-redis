@@ -62,8 +62,13 @@ async fn main() -> std::io::Result<()> {
         repli_client.connect_and_handshake().await?;
 
         let status = repli_client.psync(None, -1).await?;
+        let rdb_file = repli_client.after_psync_rdb_content().await?;
 
-        println!("PSYNC status: {}", String::from_utf8_lossy(&status));
+        println!(
+            "PSYNC status: {} & rdb_file {:?}",
+            String::from_utf8_lossy(&status),
+            rdb_file
+        );
 
         if status.len() > 0 {
             repli_client.listen_for_replication(payload.clone()).await;

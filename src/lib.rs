@@ -177,6 +177,38 @@ impl ReplicationClient {
         Ok(status_line)
     }
 
+    pub async fn after_psync_rdb_content(&mut self) -> io::Result<Vec<u8>> {
+        let r = self
+            .reader
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no reader"))?;
+
+        // Read the next line which should be a bulk string header like $<len>\r\n
+        let next = Self::read_resp_line(r).await?;
+        if next.is_empty() || next[0] != b'$' {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Expected bulk string header",
+            ));
+        }
+
+        // Parse the length of the bulk string
+        let len_str = std::str::from_utf8(&next[1..next.len() - 2])
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid bulk length bytes"))?;
+        let len: usize = len_str
+            .trim()
+            .parse()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid bulk length"))?;
+
+        // Read the exact number of bytes for the bulk string payload
+        let mut buf = vec![0u8; len];
+        r.read_exact(&mut buf).await?;
+        // Consume trailing CRLF after the bulk payload
+        let mut crlf = [0u8; 2];
+        r.read_exact(&mut crlf).await?;
+
+        Ok(buf)
+    }
     pub async fn listen_for_replication<T: Engine + Send + Sync + 'static>(
         mut self,
         payload: StreamPayload<T>,
@@ -249,61 +281,63 @@ impl ReplicationClient {
             .as_mut()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no reader"))?;
 
-        // Keep reading until we get a proper array header
-        loop {
-            let first = Self::read_resp_line(r).await?;
-            if first.is_empty() {
-                continue;
-            }
+        // Read the first line which should be an array header like *<n>\r\n
+        let first = Self::read_resp_line(r).await?;
+        if first.is_empty() {
+            return Ok(vec![]);
+        }
 
-            if first[0] != b'*' {
-                // Skip non-array responses (like simple strings, errors, etc.)
-                continue;
+        if first[0] != b'*' {
+            // Fallback: treat as inline command (space-separated)
+            let s = String::from_utf8_lossy(&first).to_string();
+            let s = s.trim_end_matches("\r\n");
+            if s.is_empty() {
+                return Ok(vec![]);
             }
+            return Ok(s.split_whitespace().map(|s| s.to_string()).collect());
+        }
 
-            // Parse the number of bulk strings expected
-            let count_str = std::str::from_utf8(&first[1..first.len() - 2]).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, "invalid array count bytes")
+        // Parse the number of bulk strings expected
+        let count_str = std::str::from_utf8(&first[1..first.len() - 2])
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid array count bytes"))?;
+        let count: usize = count_str
+            .trim()
+            .parse()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid array count"))?;
+
+        let mut parts = Vec::with_capacity(count);
+        for _ in 0..count {
+            // Each bulk string starts with $<len>\r\n
+            let bulk_hdr = Self::read_resp_line(r).await?;
+            if bulk_hdr.is_empty() || bulk_hdr[0] != b'$' {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Expected bulk string header",
+                ));
+            }
+            let len_str = std::str::from_utf8(&bulk_hdr[1..bulk_hdr.len() - 2]).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidData, "invalid bulk length bytes")
             })?;
-            let count: usize = count_str
+            let len: usize = len_str
                 .trim()
                 .parse()
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid array count"))?;
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid bulk length"))?;
 
-            let mut parts = Vec::with_capacity(count);
-            for _ in 0..count {
-                // Each bulk string starts with $<len>\r\n
-                let bulk_hdr = Self::read_resp_line(r).await?;
-                if bulk_hdr.is_empty() || bulk_hdr[0] != b'$' {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "Expected bulk string header",
-                    ));
-                }
-                let len_str =
-                    std::str::from_utf8(&bulk_hdr[1..bulk_hdr.len() - 2]).map_err(|_| {
-                        io::Error::new(io::ErrorKind::InvalidData, "invalid bulk length bytes")
-                    })?;
-                let len: usize = len_str.trim().parse().map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidData, "invalid bulk length")
-                })?;
+            // Read the exact number of bytes for the bulk string payload
+            let mut buf = vec![0u8; len];
+            r.read_exact(&mut buf).await?;
+            // Consume trailing CRLF after the bulk payload
+            let mut crlf = [0u8; 2];
+            r.read_exact(&mut crlf).await?;
 
-                // Read the exact number of bytes for the bulk string payload
-                let mut buf = vec![0u8; len];
-                r.read_exact(&mut buf).await?;
-                // Consume trailing CRLF after the bulk payload
-                let mut crlf = [0u8; 2];
-                r.read_exact(&mut crlf).await?;
-
-                let part = match String::from_utf8(buf.clone()) {
-                    Ok(s) => s,
-                    Err(_) => format!("Value (binary) length: {}", buf.len()),
-                };
-                parts.push(part);
-            }
-
-            return Ok(parts);
+            let part = match String::from_utf8(buf.clone()) {
+                Ok(s) => s,
+                Err(_) => format!("Value (binary) length: {}", buf.len()),
+            };
+            parts.push(part);
         }
+
+        Ok(parts)
     }
 
     /// Helper: read a single RESP line (ends with CRLF). Returns the full line bytes.
