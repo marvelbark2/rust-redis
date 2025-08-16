@@ -164,13 +164,8 @@ impl ReplicationClient {
             // This is the bulk header we expected: read the payload.
             let rdb_bytes = Self::read_resp_bulk_from_header(peek, r).await?;
             let line = Self::read_resp_line(r).await?; // consume trailing CRLF
-            let line2 = Self::read_resp_line(r).await?; // consume trailing CRLF
 
-            println!(
-                "After rdb_bytes: {:?} & second {:?}",
-                String::from_utf8_lossy(&line),
-                String::from_utf8_lossy(&line2)
-            );
+            println!("After rdb_bytes: {:?}", String::from_utf8_lossy(&line),);
 
             rdb_bytes
         } else {
@@ -216,7 +211,6 @@ impl ReplicationClient {
         payload: StreamPayload<T>,
     ) {
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(200)).await;
             loop {
                 let cmd_parts = match self.read_resp_array().await {
                     Ok(parts) => {
