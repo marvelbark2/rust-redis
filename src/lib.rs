@@ -208,8 +208,30 @@ impl ReplicationClient {
                     Err(_) => continue,
                 };
 
+                let parts: Vec<String> = cmd_parts.clone();
                 if let Some(cmd) = AppCommand::from_parts_simple(cmd_parts) {
                     cmd.compute(&payload).await;
+                } else {
+                    if parts[0].to_uppercase() == "REPLCONF" && parts.len() >= 3 {
+                        if parts[1].to_uppercase() == "ACK" {
+                            let data = [
+                                "REPLCONF".to_uppercase(),
+                                "ACK".to_uppercase(),
+                                "0".to_string(),
+                            ];
+                            let bytes = RespFormatter::format_array(&data);
+
+                            let w = self
+                                .writer
+                                .as_mut()
+                                .ok_or_else(|| {
+                                    io::Error::new(io::ErrorKind::NotConnected, "no writer")
+                                })
+                                .unwrap();
+
+                            w.write_all(bytes.as_bytes()).await.unwrap();
+                        }
+                    }
                 }
             }
         });
