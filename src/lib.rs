@@ -520,6 +520,7 @@ pub enum AppCommand {
     INCR(String),
     INFO(String),
     REPLCONF(String, String),
+    WAIT(u8, u64),
     None,
 }
 
@@ -1175,6 +1176,12 @@ impl AppCommand {
                 }
                 return String::from("+OK\r\n");
             }
+            AppCommand::WAIT(_num_replicas, _timeout) => {
+                // For simplicity, we assume there are no replicas connected.
+                // In a real implementation, you would check the number of connected replicas
+                // and wait for the specified timeout.
+                return RespFormatter::format_integer(0);
+            }
         }
     }
 
@@ -1286,6 +1293,11 @@ impl AppCommand {
             "INCR" if len > 1 => Some(AppCommand::INCR(parts[1].clone())),
             "INFO" if len > 1 => Some(AppCommand::INFO(parts[1].clone())),
             "REPLCONF" if len > 2 => Some(AppCommand::REPLCONF(parts[1].clone(), parts[2].clone())),
+            "WAIT" if len > 2 => {
+                let num_replicas = parts[1].parse().unwrap_or(0);
+                let timeout = parts[2].parse().unwrap_or(0);
+                Some(AppCommand::WAIT(num_replicas, timeout))
+            }
             _ => None,
         }
     }
