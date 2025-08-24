@@ -1,7 +1,6 @@
 use bytes::{BufMut, BytesMut};
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound::{Excluded, Unbounded};
-use std::str::from_utf8_unchecked;
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
@@ -159,41 +158,25 @@ impl ReplicationClient {
 
         let status = Self::read_resp_line(r).await?; // e.g. +FULLRESYNC ...\r\n
 
-        if status.starts_with(b"+FULLRESYNC") {
-            let header = Self::read_resp_line(r).await?; // must be $<len>\r\n
+        // If this is a full resync, the server will now send the RDB as a bulk
+        // string: first a `$<len>\r\n` header followed by `len` bytes of data
+        // and a trailing CRLF. The previous implementation attempted to read an
+        // extra line after the header, which caused the replica to lose sync
+        // with the stream (the first replicated command would then be parsed
+        // incorrectly). Instead, read and consume the RDB payload here so that
+        // the reader is positioned exactly at the start of the next command.
+        let rdb = if status.starts_with(b"+FULLRESYNC") {
+            let header = Self::read_resp_line(r).await?; // $<len>\r\n
             if header.is_empty() || header[0] != b'$' {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "Expected RDB bulk header after FULLRESYNC",
                 ));
             }
-        }
 
-        // Read the next line from the reader directly, instead of using self.read_line()
-        let buf: Vec<u8> = Self::read_resp_line(r).await?;
-
-        let rdb = match buf.first() {
-            Some(b'$') => {
-                let len = unsafe { from_utf8_unchecked(&buf[1..]) }
-                    .parse::<usize>()
-                    .map_err(|v| io::Error::new(io::ErrorKind::Other, v))?;
-                let mut buf = vec![0_u8; len];
-                r.read_exact(&mut buf).await?;
-                Ok(buf)
-            }
-            kind => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "Invalid response type: {:?}",
-                    kind.copied().map(|v| v as char)
-                ),
-            )),
-        };
-
-        let rdb = match rdb {
-            Ok(rdb) if rdb.is_empty() => None,
-            Ok(rdb) => Some(rdb),
-            Err(e) => return Err(e),
+            Self::read_resp_bulk_from_header(header, r).await?
+        } else {
+            None
         };
 
         Ok((status, rdb))
