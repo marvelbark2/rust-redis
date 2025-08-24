@@ -1190,23 +1190,23 @@ impl AppCommand {
                     num_replicas, timeout_ms
                 );
                 let count = {
-                    let start_time = Instant::now();
-                    let timeout = Duration::from_millis(*timeout_ms);
-                    let num_replicas = *num_replicas as usize;
+                    // let start_time = Instant::now();
+                    // let timeout = Duration::from_millis(*timeout_ms);
+                    // let num_replicas = *num_replicas as usize;
 
-                    // Get initial state
-                    let (total_repl_len, on_processing_len) = {
-                        let replica_manager = payload.replica_manager.read().await;
-                        (replica_manager.clients.len(), replica_manager.processing)
-                    }; // Lock released here
+                    // // Get initial state
+                    // let (total_repl_len, on_processing_len) = {
+                    //     let replica_manager = payload.replica_manager.read().await;
+                    //     (replica_manager.clients.len(), replica_manager.processing)
+                    // }; // Lock released here
 
-                    // No pending writes to replicate
-                    if on_processing_len == 0 {
-                        return RespFormatter::format_integer(std::cmp::min(
-                            total_repl_len,
-                            num_replicas,
-                        ));
-                    }
+                    // // No pending writes to replicate
+                    // if on_processing_len == 0 {
+                    //     return RespFormatter::format_integer(std::cmp::min(
+                    //         total_repl_len,
+                    //         num_replicas,
+                    //     ));
+                    // }
 
                     // Has pending writes (on_processing_len > 0)
                     let mut acks_received = 0;
