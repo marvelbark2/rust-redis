@@ -1177,10 +1177,8 @@ impl AppCommand {
                 return String::from("+OK\r\n");
             }
             AppCommand::WAIT(_num_replicas, _timeout) => {
-                // For simplicity, we assume there are no replicas connected.
-                // In a real implementation, you would check the number of connected replicas
-                // and wait for the specified timeout.
-                return RespFormatter::format_integer(0);
+                let count = payload.replica_manager.read().await.clients.len();
+                return RespFormatter::format_integer(count);
             }
         }
     }
