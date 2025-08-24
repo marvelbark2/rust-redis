@@ -129,8 +129,6 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
 
         let first_cmd = cmd_parts[0].clone().to_uppercase();
 
-        let cmd_parts2 = cmd_parts.clone();
-
         match AppCommand::from_parts_simple(cmd_parts) {
             Some(cmd) => {
                 if multi_cmd.len() == 0 {
@@ -228,18 +226,6 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                     w.write_all(b"-ERR unknown command\r\n").await?;
                     w.flush().await?;
                 }
-            }
-        }
-
-        if payload.replica_of.is_empty() && (first_cmd == "SET") {
-            if let Err(e) = payload
-                .replica_manager
-                .write()
-                .await
-                .broadcast(cmd_parts2.clone())
-                .await
-            {
-                eprintln!("Error broadcasting command: {}", e);
             }
         }
     }

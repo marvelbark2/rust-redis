@@ -826,6 +826,13 @@ impl AppCommand {
                     let expiration_key = format!("{}_expiration", key);
                     engine.set(expiration_key, duration);
                 }
+
+                {
+                    let mut mgr = payload.replica_manager.write().await;
+                    let _ = mgr
+                        .broadcast(vec!["SET".to_string(), key.to_string(), value.to_string()])
+                        .await;
+                }
                 format!("+OK\r\n")
             }
             AppCommand::Get(key) => {
