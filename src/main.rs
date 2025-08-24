@@ -140,6 +140,8 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                         let mut w = write_half.lock().await;
                         w.write_all(resp.as_bytes()).await?;
                         w.flush().await?;
+
+                        println!("cmd: {}, resp: {}", first_cmd, resp.trim());
                     }
                 } else {
                     multi_cmd.push(cmd);
