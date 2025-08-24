@@ -209,8 +209,8 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                         buf.extend_from_slice(payload.len().to_string().as_bytes()); // ASCII decimal length
                         buf.extend_from_slice(b"\r\n");
                         buf.extend_from_slice(payload); // binary-safe
-                        
-                        //buf.extend_from_slice(b"\r\n"); // final CRLF
+
+                        buf.extend_from_slice(b"\r\n"); // final CRLF
 
                         w.write_all(&buf).await?;
                         w.flush().await?; // helpful if `w` is buffered (e.g., BufWriter)
