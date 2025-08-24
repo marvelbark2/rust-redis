@@ -182,6 +182,7 @@ impl ReplicationClient {
         }
         tokio::spawn(async move {
             loop {
+                let prev_offset = self.offset;
                 let cmd_parts = match self.read_resp_array().await {
                     Ok(parts) => {
                         if parts.is_empty() {
@@ -198,6 +199,9 @@ impl ReplicationClient {
 
                 if let Some(cmd) = AppCommand::from_parts_simple(cmd_parts) {
                     if cmd == AppCommand::REPLCONF("GETACK".to_uppercase(), "*".to_string()) {
+                        if prev_offset == 0 {
+                            self.offset = 0;
+                        }
                         payload.offset = self.offset as usize;
                         let bytes = cmd.compute(&payload).await;
 
@@ -289,11 +293,6 @@ impl ReplicationClient {
         }
         let len = len as usize;
 
-        // (Optional) guard against absurd sizes
-        // const MAX_RDB: usize = 1 << 30; // 1 GiB
-        // if len > MAX_RDB { return Err(io::Error::new(io::ErrorKind::InvalidData, "RDB too large")); }
-
-        // 4) Read exactly `len` bytes (binary-safe)
         let mut rdb = vec![0u8; len];
         reader.read_exact(&mut rdb).await?;
 
@@ -333,12 +332,10 @@ impl ReplicationClient {
             return Ok(trimmed.split_whitespace().map(|x| x.to_string()).collect());
         }
 
-        // Parse array length
         let count: usize = Self::parse_len(&first[1..])?;
 
         let mut parts = Vec::with_capacity(count);
         for _ in 0..count {
-            // Each bulk: $<len>\r\n, then payload + CRLF (unless $-1)
             let bulk_hdr = Self::read_resp_line(r).await?;
             if bulk_hdr.is_empty() || bulk_hdr[0] != b'$' {
                 return Err(io::Error::new(
@@ -347,13 +344,10 @@ impl ReplicationClient {
                 ));
             }
 
-            // count the header we just read
             self.offset += bulk_hdr.len();
 
-            // Peek length from header so we can update offset correctly after the read
             let bulk_len_opt = Self::parse_bulk_len_isize(&bulk_hdr[1..])?;
 
-            // Read element; may be None for $-1
             let elem = Self::read_resp_bulk_from_header(bulk_hdr, r).await?;
 
             match (bulk_len_opt, elem) {
