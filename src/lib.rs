@@ -135,11 +135,7 @@ impl ReplicationClient {
         Ok(())
     }
 
-    pub async fn psync(
-        &mut self,
-        runid: Option<&[u8]>,
-        offset: i64,
-    ) -> io::Result<(Vec<u8>, Option<Vec<u8>>)> {
+    pub async fn psync(&mut self, runid: Option<&[u8]>, offset: i64) -> io::Result<Vec<u8>> {
         let runid = runid.unwrap_or(b"?");
         let off_s = offset.to_string();
 
@@ -156,14 +152,9 @@ impl ReplicationClient {
         w.write_all(&Self::resp_array(&[b"PSYNC", runid, off_s.as_bytes()]))
             .await?;
 
-        let status = Self::read_resp_line(r).await?; // e.g. +FULLRESYNC ...\r\n
+        let status = Self::read_resp_line(r).await; // e.g. +FULLRESYNC ...\r\n
 
-        let rdb = if status.starts_with(b"+FULLRESYNC") {
-            Some(Self::read_rdb_frame(r).await?)
-        } else {
-            None
-        };
-        Ok((status, rdb))
+        status
     }
 
     /// If you prefer pulling the RDB *after* PSYNC, keep this;
@@ -175,26 +166,19 @@ impl ReplicationClient {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no reader"))?;
 
         // Expect a bulk header: $<len>\r\n  or  $-1\r\n
-        let header = Self::read_resp_line(r).await?;
-        if header.is_empty() || header[0] != b'$' {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Expected bulk string header",
-            ));
-        }
-        match Self::read_resp_bulk_from_header(header, r).await? {
-            Some(bytes) => Ok(bytes),
-            None => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Null bulk for RDB",
-            )),
-        }
+        Self::read_rdb_frame(r).await
     }
 
     pub async fn listen_for_replication<T: Engine + Send + Sync + 'static>(
         mut self,
         payload: StreamPayload<T>,
     ) {
+        let rdb_file = self.after_psync_rdb_content().await;
+        if let Ok(rdb) = rdb_file {
+           println!("Received RDB of {} bytes", rdb.len());
+        } else {
+            eprintln!("Error reading RDB after PSYNC: {}", rdb_file.err().unwrap());
+        }
         tokio::spawn(async move {
             loop {
                 let cmd_parts = match self.read_resp_array().await {

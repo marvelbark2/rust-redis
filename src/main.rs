@@ -71,26 +71,13 @@ async fn main() -> std::io::Result<()> {
                     return;
                 }
 
-                let (status, rdb_file) = match repli_client.psync(None, -1).await {
+                let status = match repli_client.psync(None, -1).await {
                     Ok(res) => res,
                     Err(e) => {
                         eprintln!("Error during PSYNC: {}", e);
                         return;
                     }
                 };
-
-                match rdb_file {
-                    Some(rdb) => {
-                        println!(
-                            "PSYNC status: {} & rdb_file {:?}",
-                            String::from_utf8_lossy(&status),
-                            String::from_utf8_lossy(&rdb)
-                        );
-                    }
-                    None => {
-                        println!("PSYNC status: {}", String::from_utf8_lossy(&status));
-                    }
-                }
 
                 if status.len() > 0 {
                     repli_client.listen_for_replication(payload.clone()).await;
