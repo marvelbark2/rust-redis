@@ -1211,7 +1211,7 @@ impl AppCommand {
                     // Has pending writes (on_processing_len > 0)
                     let mut acks_received = 0;
 
-                    while start_time.elapsed() < timeout {
+                    if start_time.elapsed() < timeout {
                         // Wait for replica acknowledgments
                         acks_received = {
                             let replica_manager = payload.replica_manager.read().await;
@@ -1225,7 +1225,7 @@ impl AppCommand {
                         }
 
                         // Small sleep to avoid busy waiting
-                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        tokio::time::sleep(timeout).await;
                     }
 
                     // Timeout reached
