@@ -179,13 +179,13 @@ impl ReplicationClient {
         mut self,
         mut payload: StreamPayload<T>,
     ) {
-        let rdb_file = self.after_psync_rdb_content().await;
-        if let Ok(rdb) = rdb_file {
-            println!("Received RDB of {} bytes", rdb.len());
-        } else {
-            eprintln!("Error reading RDB after PSYNC: {}", rdb_file.err().unwrap());
-        }
         tokio::spawn(async move {
+            let rdb_file = self.after_psync_rdb_content().await;
+            if let Ok(rdb) = rdb_file {
+                println!("Received RDB of {} bytes", rdb.len());
+            } else {
+                eprintln!("Error reading RDB after PSYNC: {}", rdb_file.err().unwrap());
+            }
             loop {
                 let prev_offset = self.offset;
                 let cmd_parts = match self.read_resp_array().await {
