@@ -300,8 +300,6 @@ impl ReplicationClient {
         Ok(rdb)
     }
 
-    /// Read a RESP Array into Vec<String>. Binary bulk elements are returned as
-    /// a placeholder string noting length, to avoid UTF-8 loss.
     async fn read_resp_array(&mut self) -> io::Result<Vec<String>> {
         let r = self
             .reader
@@ -314,19 +312,25 @@ impl ReplicationClient {
             return Ok(vec![]);
         }
 
+        // bump offset for the bytes we just consumed (including the newline)
+        self.offset += first.len();
+
         if first[0] != b'*' {
-            // Treat as inline command (space-separated), trimming CRLF
-            let s = String::from_utf8_lossy(&first)
-                .trim()
-                .trim_end_matches('\n')
-                .trim_end_matches('\r')
-                .to_string();
-            if s.is_empty() {
+            // Treat as inline command (space-separated), trim only trailing line ending
+            let line_bytes = if first.ends_with(b"\r\n") {
+                &first[..first.len() - 2]
+            } else if first.ends_with(b"\n") {
+                &first[..first.len() - 1]
+            } else {
+                &first[..]
+            };
+
+            let line = String::from_utf8_lossy(line_bytes);
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
                 return Ok(vec![]);
             }
-
-            self.offset += first.len();
-            return Ok(s.split_whitespace().map(|x| x.to_string()).collect());
+            return Ok(trimmed.split_whitespace().map(|x| x.to_string()).collect());
         }
 
         // Parse array length
@@ -334,7 +338,7 @@ impl ReplicationClient {
 
         let mut parts = Vec::with_capacity(count);
         for _ in 0..count {
-            // Each bulk: $<len>\r\n, then payload + CRLF
+            // Each bulk: $<len>\r\n, then payload + CRLF (unless $-1)
             let bulk_hdr = Self::read_resp_line(r).await?;
             if bulk_hdr.is_empty() || bulk_hdr[0] != b'$' {
                 return Err(io::Error::new(
@@ -343,25 +347,76 @@ impl ReplicationClient {
                 ));
             }
 
+            // count the header we just read
+            self.offset += bulk_hdr.len();
+
+            // Peek length from header so we can update offset correctly after the read
+            let bulk_len_opt = Self::parse_bulk_len_isize(&bulk_hdr[1..])?;
+
             // Read element; may be None for $-1
             let elem = Self::read_resp_bulk_from_header(bulk_hdr, r).await?;
-            match elem {
-                Some(bytes) => match String::from_utf8(bytes) {
-                    Ok(s) => parts.push(s),
-                    Err(_) => parts.push(format!("<binary:{}>", parts.len())),
-                },
-                None => parts.push("(nil)".to_string()),
+
+            match (bulk_len_opt, elem) {
+                (Some(len), Some(bytes)) => {
+                    // reader consumed `len` bytes + trailing CRLF (2 bytes)
+                    self.offset += len + 2;
+
+                    match String::from_utf8(bytes) {
+                        Ok(s) => parts.push(s),
+                        Err(_) => parts.push(format!("<binary:{}>", parts.len())),
+                    }
+                }
+                (None, None) => {
+                    // $-1 null bulk: no payload, no trailing CRLF — only header (already counted)
+                    parts.push("(nil)".to_string());
+                }
+                // Mismatch would mean your read function didn’t match header semantics
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Bulk header/element length mismatch",
+                    ));
+                }
             }
         }
+
         Ok(parts)
     }
 
-    // ---------------------------
-    // Helpers (RESP parsing)
-    // ---------------------------
+    /// Parse a RESP bulk length from the bytes after `$`, returning:
+    /// - Ok(Some(len)) for `$<len>\r\n` with len >= 0
+    /// - Ok(None) for `$-1\r\n`
+    /// - Err on invalid format
+    fn parse_bulk_len_isize(bytes: &[u8]) -> io::Result<Option<usize>> {
+        // bytes here are the header line *including* CRLF (because caller passed &[1..] of full line),
+        // but Self::parse_len did the right thing by trimming CRLF. We'll mimic that here.
 
-    /// Read exactly one RESP "line": bytes ending with LF, and ensure CR precedes LF.
-    /// Returns the full line INCLUDING CRLF.
+        // Convert to str and trim CRLF if present
+        let s = std::str::from_utf8(if bytes.ends_with(b"\r\n") {
+            &bytes[..bytes.len() - 2]
+        } else if bytes.ends_with(b"\n") {
+            &bytes[..bytes.len() - 1]
+        } else {
+            bytes
+        })
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid bulk length utf-8"))?;
+
+        let n: isize = s.trim().parse().map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "invalid bulk length number")
+        })?;
+
+        if n == -1 {
+            Ok(None)
+        } else if n < 0 {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "negative bulk length",
+            ))
+        } else {
+            Ok(Some(n as usize))
+        }
+    }
+
     async fn read_resp_line<R: tokio::io::AsyncBufRead + Unpin>(
         reader: &mut R,
     ) -> io::Result<Vec<u8>> {
