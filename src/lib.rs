@@ -1211,24 +1211,24 @@ impl AppCommand {
                     // Has pending writes (on_processing_len > 0)
                     let mut acks_received = 0;
 
-                    if start_time.elapsed() < timeout {
-                        // Wait for replica acknowledgments
-                        acks_received = {
-                            let replica_manager = payload.replica_manager.read().await;
-                            // Count how many replicas are caught up
-                            // You'll need to implement this logic based on your replica tracking
-                            replica_manager.clients.len()
-                        };
+                    // if start_time.elapsed() < timeout {
+                    //     // Wait for replica acknowledgments
+                    //     acks_received = {
+                    //         let replica_manager = payload.replica_manager.read().await;
+                    //         // Count how many replicas are caught up
+                    //         // You'll need to implement this logic based on your replica tracking
+                    //         replica_manager.clients.len()
+                    //     };
 
-                        if acks_received >= num_replicas {
-                            return RespFormatter::format_integer(acks_received);
-                        }
+                    //     if acks_received >= num_replicas {
+                    //         return RespFormatter::format_integer(acks_received);
+                    //     }
 
-                        // Small sleep to avoid busy waiting
-                        tokio::time::sleep(timeout).await;
-                    }
+                    //     // Small sleep to avoid busy waiting
+                    //     tokio::time::sleep(timeout).await;
+                    // }
 
-                    // Timeout reached
+                    // // Timeout reached
                     acks_received
                 };
 
