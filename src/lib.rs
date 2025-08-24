@@ -224,6 +224,8 @@ impl ReplicationClient {
                             .unwrap();
 
                         w.write_all(bytes.as_bytes()).await.unwrap();
+
+                        w.flush().await.unwrap();
                     } else {
                         cmd.compute(&payload).await;
                     }
@@ -1206,48 +1208,46 @@ impl AppCommand {
                         ])
                         .await;
                 }
-                // let count = {
-                //     let start_time = Instant::now();
-                //     let timeout = Duration::from_millis(*timeout_ms);
-                //     let num_replicas = *num_replicas as usize;
+                let count = {
+                    let start_time = Instant::now();
+                    let timeout = Duration::from_millis(*timeout_ms);
+                    let num_replicas = *num_replicas as usize;
 
-                //     // Get initial state
-                //     let (total_repl_len, on_processing_len) = {
-                //         let replica_manager = payload.replica_manager.read().await;
-                //         (replica_manager.clients.len(), replica_manager.processing)
-                //     }; // Lock released here
+                    // Get initial state
+                    let (total_repl_len, on_processing_len) = {
+                        let replica_manager = payload.replica_manager.read().await;
+                        (replica_manager.clients.len(), replica_manager.processing)
+                    }; // Lock released here
 
-                //     // No pending writes to replicate
-                //     if on_processing_len == 0 {
-                //         return RespFormatter::format_integer(std::cmp::min(
-                //             total_repl_len,
-                //             num_replicas,
-                //         ));
-                //     }
+                    // No pending writes to replicate
+                    if on_processing_len == 0 {
+                        return RespFormatter::format_integer(std::cmp::min(
+                            total_repl_len,
+                            num_replicas,
+                        ));
+                    }
 
-                //     // Has pending writes (on_processing_len > 0)
-                //     let mut acks_received = 0;
+                    // Has pending writes (on_processing_len > 0)
+                    let mut acks_received = 0;
 
-                //     while start_time.elapsed() < timeout {
-                //         // Wait for replica acknowledgments
-                //         acks_received = {
-                //             let replica_manager = payload.replica_manager.read().await;
-                //             replica_manager.clients.len()
-                //         };
+                    while start_time.elapsed() < timeout {
+                        // Wait for replica acknowledgments
+                        acks_received = {
+                            let replica_manager = payload.replica_manager.read().await;
+                            replica_manager.clients.len()
+                        };
 
-                //         if acks_received >= num_replicas {
-                //             return RespFormatter::format_integer(acks_received);
-                //         }
+                        if acks_received >= num_replicas {
+                            return RespFormatter::format_integer(acks_received);
+                        }
 
-                //         // Small sleep to avoid busy waiting
-                //         tokio::time::sleep(Duration::from_millis(10)).await;
-                //     }
+                        // Small sleep to avoid busy waiting
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
 
-                //     // Timeout reached
-                //     acks_received
-                // };
-
-                let count = 0;
+                    // Timeout reached
+                    acks_received
+                };
 
                 println!("WAIT command completed: acks_received={}", count);
                 RespFormatter::format_integer(count)
