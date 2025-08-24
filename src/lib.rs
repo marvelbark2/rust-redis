@@ -165,9 +165,19 @@ impl ReplicationClient {
         // with the stream (the first replicated command would then be parsed
         // incorrectly). Instead, read and consume the RDB payload here so that
         // the reader is positioned exactly at the start of the next command.
-        let rdb = Some(
-            Self::read_resp_bulk(r).await?, // may error if server sends -1 (no RDB
-        );
+        let rdb = if status.starts_with(b"+FULLRESYNC") {
+            let header = Self::read_resp_line(r).await?; // $<len>\r\n
+            if header.is_empty() || header[0] != b'$' {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Expected RDB bulk header after FULLRESYNC",
+                ));
+            }
+
+            Self::read_resp_bulk_from_header(header, r).await?
+        } else {
+            None
+        };
 
         Ok((status, rdb))
     }
@@ -300,56 +310,6 @@ impl ReplicationClient {
             }
         }
         Ok(parts)
-    }
-
-    async fn read_resp_bulk<R>(reader: &mut R) -> io::Result<Vec<u8>>
-    where
-        R: AsyncBufRead + Unpin,
-    {
-        // 1) Expect leading '$'
-        let mut lead = [0u8; 1];
-        reader.read_exact(&mut lead).await?;
-        if lead[0] != b'$' {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "expected '$'"));
-        }
-
-        // 2) Read length line until '\n' and validate CRLF
-        let mut len_line = Vec::with_capacity(32);
-        reader.read_until(b'\n', &mut len_line).await?;
-        if len_line.len() < 2
-            || *len_line.last().unwrap() != b'\n'
-            || len_line[len_line.len() - 2] != b'\r'
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "length line missing CRLF",
-            ));
-        }
-        // Strip CRLF
-        len_line.truncate(len_line.len() - 2);
-
-        // 3) Parse decimal length
-        let len_str = std::str::from_utf8(&len_line)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "length not utf-8"))?;
-        let len: usize = len_str
-            .parse()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "length not a number"))?;
-
-        // 4) Read exactly `len` bytes of payload (binary-safe)
-        let mut payload = vec![0u8; len];
-        reader.read_exact(&mut payload).await?;
-
-        // 5) Consume trailing CRLF after the payload
-        let mut tail = [0u8; 2];
-        reader.read_exact(&mut tail).await?;
-        if tail != *b"\r\n" {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "payload missing trailing CRLF",
-            ));
-        }
-
-        Ok(payload)
     }
 
     // ---------------------------
