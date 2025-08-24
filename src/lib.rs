@@ -209,6 +209,7 @@ impl ReplicationClient {
                 };
 
                 if let Some(cmd) = AppCommand::from_parts_simple(cmd_parts) {
+                    println!("Processing command: {:?}", cmd);
                     if cmd == AppCommand::REPLCONF("GETACK".to_uppercase(), "*".to_string()) {
                         if prev_offset == 0 {
                             self.offset = 0;
