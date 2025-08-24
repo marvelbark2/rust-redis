@@ -1107,7 +1107,7 @@ impl AppCommand {
             }
             AppCommand::None => String::from("-ERR Unknown command\r\n"),
             AppCommand::REPLCONF(subcommand, value) => {
-                if subcommand == "GETACK" && value == "0" {
+                if subcommand == "GETACK" && value == "*" {
                     let data = [
                         "REPLCONF".to_uppercase(),
                         "ACK".to_uppercase(),
