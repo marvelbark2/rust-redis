@@ -296,25 +296,6 @@ impl ReplicationClient {
         let mut rdb = vec![0u8; len];
         reader.read_exact(&mut rdb).await?;
 
-        // 5) Consume mandatory trailing CRLF
-        let mut tail = [0u8; 2];
-        reader.read_exact(&mut tail).await?;
-        if tail != *b"\r\n" {
-            // Helpful bytes for debugging
-            let last_two = if rdb.len() >= 2 {
-                &rdb[rdb.len() - 2..]
-            } else {
-                &rdb[..]
-            };
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "invalid bulk tail: {:?} and prev 2 bytes {:?}",
-                    tail, last_two
-                ),
-            ));
-        }
-
         Ok(rdb)
     }
 
@@ -446,17 +427,9 @@ impl ReplicationClient {
         let mut tail = [0u8; 2];
         reader.read_exact(&mut tail).await?;
         if tail != *b"\r\n" {
-            let last_two = if buf.len() >= 2 {
-                &buf[buf.len() - 2..]
-            } else {
-                &buf[..]
-            };
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!(
-                    "invalid bulk tail: {:?} and prev 2 bytes {:?}",
-                    tail, last_two
-                ),
+                format!("invalid bulk tail: {:?}", tail),
             ));
         }
         Ok(Some(buf))
