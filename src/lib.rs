@@ -175,7 +175,7 @@ impl ReplicationClient {
     ) {
         let rdb_file = self.after_psync_rdb_content().await;
         if let Ok(rdb) = rdb_file {
-           println!("Received RDB of {} bytes", rdb.len());
+            println!("Received RDB of {} bytes", rdb.len());
         } else {
             eprintln!("Error reading RDB after PSYNC: {}", rdb_file.err().unwrap());
         }
@@ -192,29 +192,19 @@ impl ReplicationClient {
                     Err(_) => continue,
                 };
 
-                let parts: Vec<String> = cmd_parts.clone();
                 if let Some(cmd) = AppCommand::from_parts_simple(cmd_parts) {
-                    cmd.compute(&payload).await;
-                } else {
-                    if parts[0].to_uppercase() == "REPLCONF" && parts.len() >= 3 {
-                        if parts[1].to_uppercase() == "ACK" {
-                            let data = [
-                                "REPLCONF".to_uppercase(),
-                                "ACK".to_uppercase(),
-                                "0".to_string(),
-                            ];
-                            let bytes = RespFormatter::format_array(&data);
+                    if cmd == AppCommand::REPLCONF("".to_uppercase(), "".to_string()) {
+                        let bytes = cmd.compute(&payload).await;
 
-                            let w = self
-                                .writer
-                                .as_mut()
-                                .ok_or_else(|| {
-                                    io::Error::new(io::ErrorKind::NotConnected, "no writer")
-                                })
-                                .unwrap();
+                        let w = self
+                            .writer
+                            .as_mut()
+                            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no writer"))
+                            .unwrap();
 
-                            w.write_all(bytes.as_bytes()).await.unwrap();
-                        }
+                        w.write_all(bytes.as_bytes()).await.unwrap();
+                    } else {
+                        cmd.compute(&payload).await;
                     }
                 }
             }
@@ -1116,11 +1106,16 @@ impl AppCommand {
                 return RespFormatter::format_bulk_string(msg.as_str());
             }
             AppCommand::None => String::from("-ERR Unknown command\r\n"),
-            AppCommand::REPLCONF(_subcommand, _value) => {
-                // if subcommand == "REPLCONF" && value == "ACK" {
-                // } else {
-                //     return RespFormatter::format_error("Unknown REPLCONF subcommand");
-                // }
+            AppCommand::REPLCONF(subcommand, value) => {
+                if subcommand == "GETACK" && value == "0" {
+                    let data = [
+                        "REPLCONF".to_uppercase(),
+                        "ACK".to_uppercase(),
+                        "0".to_string(),
+                    ];
+                    let bytes = RespFormatter::format_array(&data);
+                    return bytes;
+                }
                 return String::from("+OK\r\n");
             }
         }
