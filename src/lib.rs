@@ -1195,6 +1195,17 @@ impl AppCommand {
                     "WAIT command received: num_replicas={}, timeout_ms={}",
                     num_replicas, timeout_ms
                 );
+                // As per Redis WAIT, ask replicas to ACK their offsets now
+                {
+                    let mut mgr = payload.replica_manager.write().await;
+                    let _ = mgr
+                        .broadcast(vec![
+                            "REPLCONF".to_string(),
+                            "GETACK".to_string(),
+                            "*".to_string(),
+                        ])
+                        .await;
+                }
                 let count = {
                     let start_time = Instant::now();
                     let timeout = Duration::from_millis(*timeout_ms);
