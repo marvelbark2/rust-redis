@@ -9,6 +9,7 @@ use std::{
 use std::{io, u64};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::RwLock;
+use tokio::time::Instant;
 
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -17,12 +18,14 @@ use tokio::net::{
 #[derive(Debug)]
 pub struct ReplicationsManager {
     clients: Vec<Arc<tokio::sync::Mutex<OwnedWriteHalf>>>,
+    processing: usize,
 }
 
 impl ReplicationsManager {
     pub fn new() -> Self {
         ReplicationsManager {
             clients: Vec::new(),
+            processing: 0,
         }
     }
 
@@ -32,6 +35,7 @@ impl ReplicationsManager {
 
     pub async fn broadcast(&mut self, messages: Vec<String>) -> io::Result<()> {
         let message = messages.as_slice();
+        self.processing = self.clients.len();
 
         let mut disconnected_clients: Vec<usize> = Vec::new();
         for (idx, client) in self.clients.iter().enumerate() {
@@ -45,6 +49,7 @@ impl ReplicationsManager {
                 disconnected_clients.push(idx);
             } else {
                 client.flush().await?;
+                self.processing -= 1;
             }
         }
 
@@ -1176,9 +1181,51 @@ impl AppCommand {
                 }
                 return String::from("+OK\r\n");
             }
-            AppCommand::WAIT(_num_replicas, _timeout) => {
-                let count = payload.replica_manager.read().await.clients.len();
-                return RespFormatter::format_integer(count);
+            AppCommand::WAIT(num_replicas, timeout_ms) => {
+                let count = {
+                    let start_time = Instant::now();
+                    let timeout = Duration::from_millis(*timeout_ms);
+                    let num_replicas = *num_replicas as usize;
+
+                    // Get initial state
+                    let (total_repl_len, on_processing_len) = {
+                        let replica_manager = payload.replica_manager.read().await;
+                        (replica_manager.clients.len(), replica_manager.processing)
+                    }; // Lock released here
+
+                    // No pending writes to replicate
+                    if on_processing_len == 0 {
+                        return RespFormatter::format_integer(std::cmp::min(
+                            total_repl_len,
+                            num_replicas,
+                        ));
+                    }
+
+                    // Has pending writes (on_processing_len > 0)
+                    let mut acks_received = 0;
+
+                    while start_time.elapsed() < timeout {
+                        // Wait for replica acknowledgments
+                        acks_received = {
+                            let replica_manager = payload.replica_manager.read().await;
+                            // Count how many replicas are caught up
+                            // You'll need to implement this logic based on your replica tracking
+                            replica_manager.clients.len()
+                        };
+
+                        if acks_received >= num_replicas {
+                            return RespFormatter::format_integer(acks_received);
+                        }
+
+                        // Small sleep to avoid busy waiting
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+
+                    // Timeout reached
+                    acks_received
+                };
+
+                RespFormatter::format_integer(count)
             }
         }
     }
