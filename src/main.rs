@@ -206,8 +206,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                         buf.extend((EMPTY_RDB.len()).to_string().as_bytes());
                         buf.extend(breaker);
                         buf.extend(EMPTY_RDB);
-                        buf.extend(breaker); // terminate RDB bulk string
-
+                        buf.extend(breaker);
                         w.write_all(&buf).await?;
                     } else {
                         w.write_all(b"$-1\r\n").await?;
