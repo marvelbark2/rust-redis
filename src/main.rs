@@ -200,14 +200,31 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
 
                     let mut w = write_half.lock().await;
                     if !rdb.is_empty() {
-                        let mut buf = Vec::from([b'$']);
+                        let payload = if rdb == b"" {
+                            EMPTY_RDB
+                        } else {
+                            rdb.as_slice()
+                        };
+                        let mut buf = Vec::with_capacity(1 + 20 + 2 + payload.len() + 2);
+                        buf.extend_from_slice(b"$");
+                        buf.extend_from_slice(payload.len().to_string().as_bytes()); // ASCII decimal length
+                        buf.extend_from_slice(b"\r\n");
+                        buf.extend_from_slice(payload); // binary-safe
+                        buf.extend_from_slice(b"\r\n"); // final CRLF
 
-                        let breaker = b"\r\n";
-                        buf.extend((EMPTY_RDB.len()).to_string().as_bytes());
-                        buf.extend(breaker);
-                        buf.extend(EMPTY_RDB);
-                        buf.extend(breaker);
+                        // Sanity checks
+                        assert!(buf.ends_with(b"\r\n"), "missing trailing CRLF");
+                        assert_eq!(
+                            payload.len(),
+                            buf.len() - (1 + payload.len().to_string().len() + 2 + 2),
+                            "internal length mismatch"
+                        );
+
+                        // (Optional) log tail to *see* 0d 0a
+                        // println!("tail = {:02x?}", &buf[buf.len().saturating_sub(8)..]);
+
                         w.write_all(&buf).await?;
+                        w.flush().await?; // helpful if `w` is buffered (e.g., BufWriter)
                     } else {
                         w.write_all(b"$-1\r\n").await?;
                     }
