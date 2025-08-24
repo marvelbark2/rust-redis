@@ -19,6 +19,9 @@ use tokio::net::{
 pub struct ReplicationsManager {
     clients: Vec<Arc<tokio::sync::Mutex<OwnedWriteHalf>>>,
     processing: usize,
+    /// Number of acknowledgments received from replicas since the last
+    /// `WAIT` command triggered a `GETACK` broadcast.
+    ack_count: usize,
 }
 
 impl ReplicationsManager {
@@ -26,11 +29,31 @@ impl ReplicationsManager {
         ReplicationsManager {
             clients: Vec::new(),
             processing: 0,
+            ack_count: 0,
         }
     }
 
     pub fn add_client(&mut self, client: Arc<tokio::sync::Mutex<OwnedWriteHalf>>) {
         self.clients.push(client);
+    }
+
+    /// Resets the ack counter. This should be invoked before asking replicas
+    /// for acknowledgments for a new `WAIT` command.
+    pub fn reset_acks(&mut self) {
+        self.ack_count = 0;
+    }
+
+    /// Records an acknowledgment received from a replica. We cap the counter at
+    /// the number of currently connected replicas to avoid runaway counts.
+    pub fn register_ack(&mut self) {
+        if self.ack_count < self.clients.len() {
+            self.ack_count += 1;
+        }
+    }
+
+    /// Returns the number of acks received so far.
+    pub fn acked(&self) -> usize {
+        self.ack_count
     }
 
     pub async fn broadcast(&mut self, messages: Vec<String>) -> io::Result<()> {
@@ -1189,6 +1212,8 @@ impl AppCommand {
             AppCommand::None => String::from("-ERR Unknown command\r\n"),
             AppCommand::REPLCONF(subcommand, value) => {
                 if subcommand == "GETACK" && value == "*" {
+                    // When acting as a replica, the master asks for an ACK. Reply
+                    // with our current offset.
                     let data = [
                         "REPLCONF".to_uppercase(),
                         "ACK".to_uppercase(),
@@ -1196,17 +1221,26 @@ impl AppCommand {
                     ];
                     let bytes = RespFormatter::format_array(&data);
                     return bytes;
+                } else if subcommand == "ACK" {
+                    // Replica acknowledged receipt of data. Record it but do not
+                    // send a reply (the real Redis server stays silent here).
+                    let mut mgr = payload.replica_manager.write().await;
+                    mgr.register_ack();
+                    return String::new();
                 }
-                return String::from("+OK\r\n");
+                // Other REPLCONF subcommands (e.g. during handshake) expect an OK.
+                String::from("+OK\r\n")
             }
             AppCommand::WAIT(num_replicas, timeout_ms) => {
                 println!(
                     "WAIT command received: num_replicas={}, timeout_ms={}",
                     num_replicas, timeout_ms
                 );
-                // As per Redis WAIT, ask replicas to ACK their offsets now
+
+                // Ask replicas for acknowledgments of their current offsets
                 {
                     let mut mgr = payload.replica_manager.write().await;
+                    mgr.reset_acks();
                     let _ = mgr
                         .broadcast(vec![
                             "REPLCONF".to_string(),
@@ -1215,49 +1249,29 @@ impl AppCommand {
                         ])
                         .await;
                 }
-                let count = {
-                    let start_time = Instant::now();
-                    let timeout = Duration::from_millis(*timeout_ms);
-                    let num_replicas = *num_replicas as usize;
 
-                    // Get initial state
-                    let (total_repl_len, on_processing_len) = {
-                        let replica_manager = payload.replica_manager.read().await;
-                        (replica_manager.clients.len(), replica_manager.processing)
-                    }; // Lock released here
-
-                    // No pending writes to replicate
-                    if on_processing_len == 0 {
-                        return RespFormatter::format_integer(std::cmp::min(
-                            total_repl_len,
-                            num_replicas,
-                        ));
-                    }
-
-                    // Has pending writes (on_processing_len > 0)
-                    let mut acks_received = 0;
-
-                    while start_time.elapsed() < timeout {
-                        // Wait for replica acknowledgments
-                        acks_received = {
-                            let replica_manager = payload.replica_manager.read().await;
-                            replica_manager.clients.len()
-                        };
-
-                        if acks_received >= num_replicas {
-                            return RespFormatter::format_integer(acks_received);
-                        }
-
-                        // Small sleep to avoid busy waiting
-                        tokio::time::sleep(Duration::from_millis(10)).await;
-                    }
-
-                    // Timeout reached
-                    acks_received
+                // Number of replicas we actually expect acknowledgments from
+                let target = {
+                    let mgr = payload.replica_manager.read().await;
+                    std::cmp::min(*num_replicas as usize, mgr.clients.len())
                 };
 
-                println!("WAIT command completed: acks_received={}", count);
-                RespFormatter::format_integer(count)
+                let start_time = Instant::now();
+                let timeout = Duration::from_millis(*timeout_ms);
+                loop {
+                    let acked = {
+                        let mgr = payload.replica_manager.read().await;
+                        mgr.acked()
+                    };
+
+                    if acked >= target || start_time.elapsed() >= timeout {
+                        println!("WAIT command completed: acks_received={}", acked);
+                        return RespFormatter::format_integer(acked);
+                    }
+
+                    // Small sleep to avoid busy waiting
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
             }
         }
     }
