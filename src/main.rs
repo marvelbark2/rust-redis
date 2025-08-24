@@ -57,31 +57,46 @@ async fn main() -> std::io::Result<()> {
         master_replid: master_replid.clone(),
         replica_manager: Arc::new(RwLock::new(ReplicationsManager::new())),
     };
-
     if !replica_of.is_empty() {
-        let mut repli_client = ReplicationClient::new(&replica_of, port);
+        tokio::spawn({
+            let replica_of = replica_of.clone();
+            let port = port.clone();
+            let payload = payload.clone();
+            async move {
+                let mut repli_client = ReplicationClient::new(&replica_of, port);
 
-        println!("Connecting to master at {}", replica_of);
-        repli_client.connect_and_handshake().await?;
+                println!("Connecting to master at {}", replica_of);
+                if let Err(e) = repli_client.connect_and_handshake().await {
+                    eprintln!("Error during handshake: {}", e);
+                    return;
+                }
 
-        let (status, rdb_file) = repli_client.psync(None, -1).await?;
+                let (status, rdb_file) = match repli_client.psync(None, -1).await {
+                    Ok(res) => res,
+                    Err(e) => {
+                        eprintln!("Error during PSYNC: {}", e);
+                        return;
+                    }
+                };
 
-        match rdb_file {
-            Some(rdb) => {
-                println!(
-                    "PSYNC status: {} & rdb_file {:?}",
-                    String::from_utf8_lossy(&status),
-                    String::from_utf8_lossy(&rdb)
-                );
+                match rdb_file {
+                    Some(rdb) => {
+                        println!(
+                            "PSYNC status: {} & rdb_file {:?}",
+                            String::from_utf8_lossy(&status),
+                            String::from_utf8_lossy(&rdb)
+                        );
+                    }
+                    None => {
+                        println!("PSYNC status: {}", String::from_utf8_lossy(&status));
+                    }
+                }
+
+                if status.len() > 0 {
+                    repli_client.listen_for_replication(payload.clone()).await;
+                }
             }
-            None => {
-                println!("PSYNC status: {}", String::from_utf8_lossy(&status));
-            }
-        }
-
-        if status.len() > 0 {
-            repli_client.listen_for_replication(payload.clone()).await;
-        }
+        });
     }
 
     loop {
