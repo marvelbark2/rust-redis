@@ -37,6 +37,12 @@ impl ReplicationsManager {
         let message = messages.as_slice();
         self.processing = self.clients.len();
 
+        println!(
+            "Broadcasting {:?} to {} clients",
+            messages,
+            self.clients.len()
+        );
+
         let mut disconnected_clients: Vec<usize> = Vec::new();
         for (idx, client) in self.clients.iter().enumerate() {
             let mut client = client.lock().await;
