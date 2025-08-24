@@ -159,15 +159,7 @@ impl ReplicationClient {
         let status = Self::read_resp_line(r).await?; // e.g. +FULLRESYNC ...\r\n
 
         let rdb = if status.starts_with(b"+FULLRESYNC") {
-            let header = Self::read_resp_line(r).await?; // $<len>\r\n
-            if header.is_empty() || header[0] != b'$' {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Expected RDB bulk header after FULLRESYNC",
-                ));
-            }
-
-            Self::read_resp_bulk_from_header(header, r).await?
+            Some(Self::read_rdb_frame(r).await?)
         } else {
             None
         };
@@ -248,6 +240,82 @@ impl ReplicationClient {
             out.extend_from_slice(b"\r\n");
         }
         out
+    }
+
+    async fn read_rdb_frame<R>(reader: &mut R) -> io::Result<Vec<u8>>
+    where
+        R: AsyncBufRead + Unpin,
+    {
+        // 1) Expect '$'
+        let mut lead = [0u8; 1];
+        reader.read_exact(&mut lead).await?;
+        if lead[0] != b'$' {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "expected '$' for RDB bulk",
+            ));
+        }
+
+        // 2) Read length line (must end with CRLF)
+        let mut len_line = Vec::with_capacity(32);
+        reader.read_until(b'\n', &mut len_line).await?;
+        if len_line.len() < 2 || len_line[len_line.len() - 2] != b'\r' {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "length line missing CRLF",
+            ));
+        }
+        len_line.truncate(len_line.len() - 2);
+
+        // 3) Parse decimal length (handle $-1 as error for RDB)
+        let s = std::str::from_utf8(&len_line)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "length not UTF-8"))?;
+        let len: isize = s
+            .trim()
+            .parse()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "length not a number"))?;
+        if len == -1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "null bulk for RDB",
+            ));
+        }
+        if len < 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "negative bulk length",
+            ));
+        }
+        let len = len as usize;
+
+        // (Optional) guard against absurd sizes
+        // const MAX_RDB: usize = 1 << 30; // 1 GiB
+        // if len > MAX_RDB { return Err(io::Error::new(io::ErrorKind::InvalidData, "RDB too large")); }
+
+        // 4) Read exactly `len` bytes (binary-safe)
+        let mut rdb = vec![0u8; len];
+        reader.read_exact(&mut rdb).await?;
+
+        // 5) Consume mandatory trailing CRLF
+        let mut tail = [0u8; 2];
+        reader.read_exact(&mut tail).await?;
+        if tail != *b"\r\n" {
+            // Helpful bytes for debugging
+            let last_two = if rdb.len() >= 2 {
+                &rdb[rdb.len() - 2..]
+            } else {
+                &rdb[..]
+            };
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "invalid bulk tail: {:?} and prev 2 bytes {:?}",
+                    tail, last_two
+                ),
+            ));
+        }
+
+        Ok(rdb)
     }
 
     /// Read a RESP Array into Vec<String>. Binary bulk elements are returned as
