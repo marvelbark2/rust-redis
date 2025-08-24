@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_imports)]
-
 use bytes::{BufMut, BytesMut};
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Bound::{Excluded, Unbounded};
@@ -204,7 +202,10 @@ impl ReplicationClient {
                         );
                         parts
                     }
-                    Err(_) => continue,
+                    Err(_) => {
+                        println!("Error reading command parts, terminating replication loop.");
+                        continue;
+                    }
                 };
 
                 if let Some(cmd) = AppCommand::from_parts_simple(cmd_parts) {
@@ -225,6 +226,8 @@ impl ReplicationClient {
                     } else {
                         cmd.compute(&payload).await;
                     }
+                } else {
+                    println!("Unknown command received in replication stream.");
                 }
             }
         });
@@ -1191,7 +1194,46 @@ impl AppCommand {
                     "WAIT command received: num_replicas={}, timeout_ms={}",
                     num_replicas, timeout_ms
                 );
-                let count = 0;
+                let count = {
+                    let start_time = Instant::now();
+                    let timeout = Duration::from_millis(*timeout_ms);
+                    let num_replicas = *num_replicas as usize;
+
+                    // Get initial state
+                    let (total_repl_len, on_processing_len) = {
+                        let replica_manager = payload.replica_manager.read().await;
+                        (replica_manager.clients.len(), replica_manager.processing)
+                    }; // Lock released here
+
+                    // No pending writes to replicate
+                    if on_processing_len == 0 {
+                        return RespFormatter::format_integer(std::cmp::min(
+                            total_repl_len,
+                            num_replicas,
+                        ));
+                    }
+
+                    // Has pending writes (on_processing_len > 0)
+                    let mut acks_received = 0;
+
+                    while start_time.elapsed() < timeout {
+                        // Wait for replica acknowledgments
+                        acks_received = {
+                            let replica_manager = payload.replica_manager.read().await;
+                            replica_manager.clients.len()
+                        };
+
+                        if acks_received >= num_replicas {
+                            return RespFormatter::format_integer(acks_received);
+                        }
+
+                        // Small sleep to avoid busy waiting
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+
+                    // Timeout reached
+                    acks_received
+                };
 
                 println!("WAIT command completed: acks_received={}", count);
                 RespFormatter::format_integer(count)
