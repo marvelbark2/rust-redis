@@ -1185,6 +1185,10 @@ impl AppCommand {
                 return String::from("+OK\r\n");
             }
             AppCommand::WAIT(num_replicas, timeout_ms) => {
+                println!(
+                    "WAIT command received: num_replicas={}, timeout_ms={}",
+                    num_replicas, timeout_ms
+                );
                 let count = {
                     let start_time = Instant::now();
                     let timeout = Duration::from_millis(*timeout_ms);
