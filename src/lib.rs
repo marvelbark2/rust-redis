@@ -158,13 +158,6 @@ impl ReplicationClient {
 
         let status = Self::read_resp_line(r).await?; // e.g. +FULLRESYNC ...\r\n
 
-        // If this is a full resync, the server will now send the RDB as a bulk
-        // string: first a `$<len>\r\n` header followed by `len` bytes of data
-        // and a trailing CRLF. The previous implementation attempted to read an
-        // extra line after the header, which caused the replica to lose sync
-        // with the stream (the first replicated command would then be parsed
-        // incorrectly). Instead, read and consume the RDB payload here so that
-        // the reader is positioned exactly at the start of the next command.
         let rdb = if status.starts_with(b"+FULLRESYNC") {
             let header = Self::read_resp_line(r).await?; // $<len>\r\n
             if header.is_empty() || header[0] != b'$' {
@@ -178,6 +171,14 @@ impl ReplicationClient {
         } else {
             None
         };
+
+        // flush reader
+        let mut buf = [0u8; 1024];
+        while let Ok(n) = r.read(&mut buf).await {
+            if n == 0 {
+                break;
+            }
+        }
 
         Ok((status, rdb))
     }
