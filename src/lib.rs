@@ -193,7 +193,7 @@ impl ReplicationClient {
                 };
 
                 if let Some(cmd) = AppCommand::from_parts_simple(cmd_parts) {
-                    if cmd == AppCommand::REPLCONF("".to_uppercase(), "".to_string()) {
+                    if cmd == AppCommand::REPLCONF("GETACK".to_uppercase(), "0".to_string()) {
                         let bytes = cmd.compute(&payload).await;
 
                         let w = self
