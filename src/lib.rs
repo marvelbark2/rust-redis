@@ -197,6 +197,7 @@ impl ReplicationClient {
                     if cmd == AppCommand::REPLCONF("GETACK".to_uppercase(), "*".to_string()) {
                         payload.offset = self.offset as usize;
                         let bytes = cmd.compute(&payload).await;
+                        println!("Sending ACK with offset {}", self.offset);
 
                         let w = self
                             .writer
