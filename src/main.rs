@@ -56,6 +56,7 @@ async fn main() -> std::io::Result<()> {
         replica_of: replica_of.clone(),
         master_replid: master_replid.clone(),
         replica_manager: Arc::new(RwLock::new(ReplicationsManager::new())),
+        offset: 0,
     };
     if !replica_of.is_empty() {
         tokio::spawn({

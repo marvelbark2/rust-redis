@@ -60,7 +60,7 @@ pub struct ReplicationClient {
     master_host: String,
     master_port: u16,
     local_listen_port: String,
-
+    offset: usize,
     reader: Option<BufReader<OwnedReadHalf>>,
     writer: Option<OwnedWriteHalf>,
 }
@@ -80,6 +80,7 @@ impl ReplicationClient {
             local_listen_port,
             reader: None,
             writer: None,
+            offset: 0,
         }
     }
 
@@ -171,7 +172,7 @@ impl ReplicationClient {
 
     pub async fn listen_for_replication<T: Engine + Send + Sync + 'static>(
         mut self,
-        payload: StreamPayload<T>,
+        mut payload: StreamPayload<T>,
     ) {
         let rdb_file = self.after_psync_rdb_content().await;
         if let Ok(rdb) = rdb_file {
@@ -194,6 +195,7 @@ impl ReplicationClient {
 
                 if let Some(cmd) = AppCommand::from_parts_simple(cmd_parts) {
                     if cmd == AppCommand::REPLCONF("GETACK".to_uppercase(), "*".to_string()) {
+                        payload.offset = self.offset as usize;
                         let bytes = cmd.compute(&payload).await;
 
                         let w = self
@@ -319,6 +321,8 @@ impl ReplicationClient {
             if s.is_empty() {
                 return Ok(vec![]);
             }
+
+            self.offset += first.len();
             return Ok(s.split_whitespace().map(|x| x.to_string()).collect());
         }
 
@@ -439,6 +443,7 @@ pub struct StreamPayload<T: Engine> {
     pub replica_of: String,
     pub master_replid: String,
     pub replica_manager: Arc<RwLock<ReplicationsManager>>,
+    pub offset: usize,
 }
 
 #[derive(PartialEq, Debug)]
@@ -1111,7 +1116,7 @@ impl AppCommand {
                     let data = [
                         "REPLCONF".to_uppercase(),
                         "ACK".to_uppercase(),
-                        "0".to_string(),
+                        payload.offset.to_string(),
                     ];
                     let bytes = RespFormatter::format_array(&data);
                     return bytes;
