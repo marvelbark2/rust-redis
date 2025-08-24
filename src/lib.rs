@@ -378,9 +378,17 @@ impl ReplicationClient {
         let mut tail = [0u8; 2];
         reader.read_exact(&mut tail).await?;
         if tail != *b"\r\n" {
+            let last_two = if buf.len() >= 2 {
+                &buf[buf.len() - 2..]
+            } else {
+                &buf[..]
+            };
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("invalid bulk tail: {:?}", tail),
+                format!(
+                    "invalid bulk tail: {:?} and prev 2 bytes {:?}",
+                    tail, last_two
+                ),
             ));
         }
         Ok(Some(buf))
