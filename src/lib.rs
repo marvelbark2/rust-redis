@@ -1190,48 +1190,49 @@ impl AppCommand {
                     num_replicas, timeout_ms
                 );
                 let count = {
-                    // let start_time = Instant::now();
-                    // let timeout = Duration::from_millis(*timeout_ms);
-                    // let num_replicas = *num_replicas as usize;
+                    let start_time = Instant::now();
+                    let timeout = Duration::from_millis(*timeout_ms);
+                    let num_replicas = *num_replicas as usize;
 
-                    // // Get initial state
-                    // let (total_repl_len, on_processing_len) = {
-                    //     let replica_manager = payload.replica_manager.read().await;
-                    //     (replica_manager.clients.len(), replica_manager.processing)
-                    // }; // Lock released here
+                    // Get initial state
+                    let (total_repl_len, on_processing_len) = {
+                        let replica_manager = payload.replica_manager.read().await;
+                        (replica_manager.clients.len(), replica_manager.processing)
+                    }; // Lock released here
 
-                    // // No pending writes to replicate
-                    // if on_processing_len == 0 {
-                    //     return RespFormatter::format_integer(std::cmp::min(
-                    //         total_repl_len,
-                    //         num_replicas,
-                    //     ));
-                    // }
+                    // No pending writes to replicate
+                    if on_processing_len == 0 {
+                        return RespFormatter::format_integer(std::cmp::min(
+                            total_repl_len,
+                            num_replicas,
+                        ));
+                    }
 
                     // Has pending writes (on_processing_len > 0)
                     let mut acks_received = 0;
 
-                    // if start_time.elapsed() < timeout {
-                    //     // Wait for replica acknowledgments
-                    //     acks_received = {
-                    //         let replica_manager = payload.replica_manager.read().await;
-                    //         // Count how many replicas are caught up
-                    //         // You'll need to implement this logic based on your replica tracking
-                    //         replica_manager.clients.len()
-                    //     };
+                    while start_time.elapsed() < timeout {
+                        // Wait for replica acknowledgments
+                        acks_received = {
+                            let replica_manager = payload.replica_manager.read().await;
+                            // Count how many replicas are caught up
+                            // You'll need to implement this logic based on your replica tracking
+                            replica_manager.clients.len()
+                        };
 
-                    //     if acks_received >= num_replicas {
-                    //         return RespFormatter::format_integer(acks_received);
-                    //     }
+                        if acks_received >= num_replicas {
+                            return RespFormatter::format_integer(acks_received);
+                        }
 
-                    //     // Small sleep to avoid busy waiting
-                    //     tokio::time::sleep(timeout).await;
-                    // }
+                        // Small sleep to avoid busy waiting
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
 
-                    // // Timeout reached
+                    // Timeout reached
                     acks_received
                 };
 
+                println!("WAIT command completed: acks_received={}", count);
                 RespFormatter::format_integer(count)
             }
         }
