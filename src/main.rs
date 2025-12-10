@@ -148,6 +148,7 @@ async fn handle_stream<T: Engine + Send + Sync + 'static>(
                     w.flush().await?;
                 }
             }
+            // TODO: Abstract and refactor this logic in enum, written in lib file
             None => {
                 if first_cmd == "MULTI" {
                     multi_cmd.push(AppCommand::None);
